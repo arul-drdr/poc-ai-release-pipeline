@@ -170,17 +170,20 @@ jobs:
           {
             "parent": { "database_id": "${NOTION_DATABASE_ID}" },
             "properties": {
-              "Version": {
-                "title": [{ "text": { "content": "${DESCRIPTION}" } }]
+              "Title": {
+                "title": [{ "text": { "content": "${JIRA_ID} - ${DESCRIPTION}" } }]
               },
               "Release Date": {
                 "date": { "start": "$(date -u +%Y-%m-%d)" }
               },
-              "Work Types": {
-                "multi_select": [{ "name": "${WORK_TYPE}" }]
+              "Type": {
+                "select": { "name": "${WORK_TYPE}" }
               },
               "Status": {
                 "select": { "name": "Released" }
+              },
+              "Summary": {
+                "rich_text": [{ "type": "text", "text": { "content": "${TRUNCATED_NOTES}" } }]
               }
             },
             "children": [
