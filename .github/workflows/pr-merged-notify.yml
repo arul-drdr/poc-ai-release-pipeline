@@ -7,7 +7,10 @@ on:
 jobs:
   notify:
     name: Generate & Distribute Release Notes
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      !startsWith(github.event.pull_request.title, 'chore(main): release')
     runs-on: ubuntu-latest
     permissions:
       contents: read
