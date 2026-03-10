@@ -68,6 +68,20 @@ jobs:
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
+          # Check for breaking change markers
+          BREAKING="false"
+          if echo "$PR_BODY" | grep -qiE '(BREAKING CHANGE|breaking change|\!\()'; then
+            BREAKING="true"
+          fi
+          echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(jq -r '.["."]' .release-please-manifest.json 2>/dev/null || echo "")
+          echo "version=${VERSION:-N/A}" >> "$GITHUB_OUTPUT"
+          echo "Current version: ${VERSION:-N/A}"
+
       - name: Rewrite release notes with AI
         id: rewrite
         env:
@@ -157,6 +171,8 @@ jobs:
           DESCRIPTION: ${{ steps.metadata.outputs.description }}
           PR_URL: ${{ steps.metadata.outputs.pr_url }}
           CUSTOMER_NOTES: ${{ steps.rewrite.outputs.customer_notes }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BREAKING: ${{ steps.metadata.outputs.breaking }}
         run: |
           if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
             echo "Warning: Notion secrets not configured, skipping Notion update"
@@ -166,12 +182,39 @@ jobs:
           # Truncate notes to 1900 chars (Notion block limit is 2000)
           TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
 
+          # Build Features and Bug Fixes multi-select arrays based on work type
+          FEATURES_JSON="[]"
+          BUGFIXES_JSON="[]"
+          case "$WORK_TYPE" in
+            "Feature")
+              FEATURES_JSON='[{"name": "New Feature"}]'
+              ;;
+            "Change Request")
+              FEATURES_JSON='[{"name": "Enhancement"}]'
+              ;;
+            "Bug Fix")
+              BUGFIXES_JSON='[{"name": "Bug Fix"}]'
+              ;;
+            "Critical Fix")
+              BUGFIXES_JSON='[{"name": "Critical Fix"}, {"name": "Security"}]'
+              ;;
+          esac
+
+          # Breaking change checkbox
+          BREAKING_VAL=false
+          if [ "$BREAKING" = "true" ]; then
+            BREAKING_VAL=true
+          fi
+
           PAYLOAD=$(cat <<EOFPAYLOAD
           {
             "parent": { "database_id": "${NOTION_DATABASE_ID}" },
             "properties": {
               "Title": {
                 "title": [{ "text": { "content": "${JIRA_ID} - ${DESCRIPTION}" } }]
+              },
+              "Version": {
+                "rich_text": [{ "type": "text", "text": { "content": "${VERSION}" } }]
               },
               "Release Date": {
                 "date": { "start": "$(date -u +%Y-%m-%d)" }
@@ -184,6 +227,15 @@ jobs:
               },
               "Summary": {
                 "rich_text": [{ "type": "text", "text": { "content": "${TRUNCATED_NOTES}" } }]
+              },
+              "Features": {
+                "multi_select": ${FEATURES_JSON}
+              },
+              "Bug Fixes": {
+                "multi_select": ${BUGFIXES_JSON}
+              },
+              "Breaking Change": {
+                "checkbox": ${BREAKING_VAL}
               }
             },
             "children": [

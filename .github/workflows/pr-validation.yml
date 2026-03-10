@@ -12,6 +12,8 @@ env:
 jobs:
   validate:
     name: Validate PR
+    # Skip validation for release-please auto-generated PRs
+    if: "!startsWith(github.event.pull_request.title, 'chore(main): release')"
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -151,17 +153,46 @@ jobs:
 
       - name: Auto-Label PR
         uses: actions/github-script@v7
+        env:
+          JIRA_FOUND: ${{ steps.jira_id.outputs.found }}
+          JIRA_FETCHED: ${{ steps.jira_data.outputs.fetched }}
         with:
           script: |
             const title = context.payload.pull_request.title;
             const labels = [];
 
+            // Type labels
             if (title.startsWith('feat')) labels.push('feature');
             else if (title.startsWith('fix')) labels.push('bug');
             else if (title.startsWith('critical')) labels.push('critical-fix');
             else if (title.startsWith('chore') || title.startsWith('ci') || title.startsWith('build')) labels.push('maintenance');
             else if (title.startsWith('docs')) labels.push('documentation');
             else if (title.startsWith('refactor') || title.startsWith('perf')) labels.push('improvement');
+
+            // Jira verification labels
+            const jiraFound = process.env.JIRA_FOUND === 'true';
+            const jiraFetched = process.env.JIRA_FETCHED === 'true';
+
+            // Remove existing jira labels first
+            const currentLabels = context.payload.pull_request.labels.map(l => l.name);
+            for (const old of ['jira-verified', 'jira-unverified', 'jira-missing']) {
+              if (currentLabels.includes(old)) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  name: old
+                }).catch(() => {});
+              }
+            }
+
+            if (!jiraFound) {
+              labels.push('jira-missing');
+            } else if (jiraFetched) {
+              labels.push('jira-verified');
+            } else {
+              labels.push('jira-unverified');
+            }
 
             if (labels.length > 0) {
               await github.rest.issues.addLabels({
