@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.4.0...poc-ai-release-pipeline-v1.4.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **ci:** Handle release-please PRs in Notion and Slack notifications ([#21](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/21)) ([fe1b793](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/fe1b79312f0e96f9aa414a8d9910f43e2f28dfed))
+
 ## [1.4.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.3.0...poc-ai-release-pipeline-v1.4.0) (2026-03-10)
 
 
