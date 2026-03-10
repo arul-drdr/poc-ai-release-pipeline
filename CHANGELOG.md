@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.2...poc-ai-release-pipeline-v1.2.3) (2026-03-10)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1194 Fix Jira labels, validation skip, and Notion fields ([#11](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/11)) ([c87e4d5](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/c87e4d594c49f1a57f5887c9df019808ef32a095))
+
 ## [1.2.2](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.1...poc-ai-release-pipeline-v1.2.2) (2026-03-10)
 
 
