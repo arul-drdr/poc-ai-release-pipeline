@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.0...poc-ai-release-pipeline-v1.2.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **ci:** align Notion API payload with actual database properties ([#7](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/7)) ([4e30dbf](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/4e30dbf8c3fe3bd1adafe21cdf1b75ac0d94453e))
+
 ## [1.2.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.1.1...poc-ai-release-pipeline-v1.2.0) (2026-03-10)
 
 
