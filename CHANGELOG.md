@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.4](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.3...poc-ai-release-pipeline-v1.2.4) (2026-03-10)
+
+
+### Bug Fixes
+
+* **ci:** match Notion Bug Fixes type and remove Breaking Change ([#13](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/13)) ([73a32d1](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/73a32d1f9056bc596117f53b633b0fbd933c4056))
+
 ## [1.2.3](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.2...poc-ai-release-pipeline-v1.2.3) (2026-03-10)
 
 
