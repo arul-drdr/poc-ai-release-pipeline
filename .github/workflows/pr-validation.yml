@@ -137,7 +137,15 @@ jobs:
             ISSUE_TYPE=$(echo "$BODY" | jq -r '.fields.issuetype.name // "N/A"')
             SUMMARY=$(echo "$BODY" | jq -r '.fields.summary // "N/A"')
             STATUS=$(echo "$BODY" | jq -r '.fields.status.name // "N/A"')
-            DESCRIPTION=$(echo "$BODY" | jq -r '.fields.description.content[0].content[0].text // "No description"' | head -5)
+            DESCRIPTION=$(echo "$BODY" | jq -r '
+              [.fields.description.content[]? |
+                if .type == "paragraph" or .type == "heading" then
+                  [.content[]?.text // empty] | join("")
+                elif .type == "bulletList" or .type == "orderedList" then
+                  [.content[]?.content[]?.content[]?.text // empty] | map("- " + .) | join("\n")
+                else empty end
+              ] | join("\n")' 2>/dev/null || echo "No description")
+            DESCRIPTION=$(echo "$DESCRIPTION" | head -30)
 
             echo "fetched=true" >> "$GITHUB_OUTPUT"
             echo "issue_type=$ISSUE_TYPE" >> "$GITHUB_OUTPUT"
