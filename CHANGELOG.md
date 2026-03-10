@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.1...poc-ai-release-pipeline-v1.2.2) (2026-03-10)
+
+
+### Bug Fixes
+
+* **ci:** use status type instead of select for Notion Status property ([#9](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/9)) ([c8faeb5](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/c8faeb595b3ae335e1140eeb1b3a5e182ffaebba))
+
 ## [1.2.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.0...poc-ai-release-pipeline-v1.2.1) (2026-03-10)
 
 
