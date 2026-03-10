@@ -117,7 +117,7 @@ jobs:
           CLEAN_URL=$(echo "$JIRA_BASE_URL" | sed 's|^https\?://||' | sed 's|/$||')
           echo "Connecting to Jira at: ${CLEAN_URL}"
 
-          AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64)
+          AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64 -w 0)
 
           RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 \
             -H "Authorization: Basic ${AUTH}" \
