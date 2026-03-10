@@ -70,7 +70,7 @@ jobs:
         id: ai_summary
         if: steps.fetch.outputs.release_count != '0'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           RAW_SUMMARY: ${{ steps.fetch.outputs.raw_summary }}
           DATE_RANGE: ${{ steps.fetch.outputs.date_range }}
           RELEASE_COUNT: ${{ steps.fetch.outputs.release_count }}
