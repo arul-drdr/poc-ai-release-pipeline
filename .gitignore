@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets
+*.env
+appsettings.Development.json
+
+# Build output
+customer-release-notes.md
+node_modules/
