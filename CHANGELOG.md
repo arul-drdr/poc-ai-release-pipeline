@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.1.1...poc-ai-release-pipeline-v1.2.0) (2026-03-10)
+
+
+### New Features
+
+* **ci:** add PR merge notification to Notion and Slack ([#5](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/5)) ([67070ce](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/67070cee1fc38c054b40f0fbb3f731088504cc00))
+
 ## [1.1.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.1.0...poc-ai-release-pipeline-v1.1.1) (2026-03-10)
 
 
