@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.1.0...poc-ai-release-pipeline-v1.1.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **ci:** use RELEASE_PAT for GitHub Models API access ([#3](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/3)) ([c02bf5b](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/c02bf5baf0abfcdd8675bf9fdb228b0d26a804b2))
+
 ## [1.1.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.0.0...poc-ai-release-pipeline-v1.1.0) (2026-03-10)
 
 
