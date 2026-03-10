@@ -22,7 +22,7 @@ jobs:
       - name: Rewrite release notes with AI
         id: rewrite
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           echo '${{ github.event.release.body }}' | node scripts/rewrite-release-notes.js
 
