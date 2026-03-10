@@ -151,6 +151,71 @@ jobs:
             echo "fetched=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Auto-fill PR body from Jira
+        if: steps.jira_data.outputs.fetched == 'true' && github.event.action == 'opened'
+        uses: actions/github-script@v7
+        env:
+          JIRA_ID: ${{ steps.jira_id.outputs.jira_id }}
+          JIRA_ISSUE_TYPE: ${{ steps.jira_data.outputs.issue_type }}
+          JIRA_SUMMARY: ${{ steps.jira_data.outputs.summary }}
+          JIRA_STATUS: ${{ steps.jira_data.outputs.status }}
+          JIRA_DESCRIPTION: ${{ steps.jira_data.outputs.description }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            let body = context.payload.pull_request.body || '';
+
+            // Only auto-fill if the body still has placeholders (not already filled)
+            if (!body.includes('PROJ-0000') && !body.includes('Describe what was changed and why')) {
+              console.log('PR body already filled in, skipping auto-fill');
+              return;
+            }
+
+            const jiraId = process.env.JIRA_ID;
+            const issueType = process.env.JIRA_ISSUE_TYPE;
+            const summary = process.env.JIRA_SUMMARY;
+            const description = process.env.JIRA_DESCRIPTION;
+            const jiraBaseUrl = (process.env.JIRA_BASE_URL || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+            const jiraUrl = `https://${jiraBaseUrl}/browse/${jiraId}`;
+
+            // Auto-check Work Type based on Jira issue type
+            const type = (issueType || '').toLowerCase();
+            if (type.includes('bug')) {
+              body = body.replace('- [ ] Bug', '- [x] Bug');
+            } else if (type.includes('story') || type.includes('feature') || type.includes('task')) {
+              body = body.replace('- [ ] Feature', '- [x] Feature');
+            } else if (type.includes('change') || type.includes('improvement')) {
+              body = body.replace('- [ ] Change Request', '- [x] Change Request');
+            } else if (type.includes('critical') || type.includes('hotfix') || type.includes('incident')) {
+              body = body.replace('- [ ] Critical Fix', '- [x] Critical Fix');
+            }
+
+            // Replace Jira Task ID placeholder
+            body = body.replace('PROJ-0000', `[${jiraId}](${jiraUrl})`);
+
+            // Replace Summary placeholder with Jira summary
+            body = body.replace(
+              'Describe what was changed and why',
+              summary || 'Describe what was changed and why'
+            );
+
+            // Replace Acceptance Criteria placeholder with Jira link
+            body = body.replace(
+              'Paste or link the acceptance criteria from Jira',
+              `See Jira task: [${jiraId}](${jiraUrl})\n\n${description || ''}`
+            );
+
+            // Update the PR body
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              body: body
+            });
+
+            console.log(`Auto-filled PR #${prNumber} body from Jira ${jiraId}`);
+
       - name: Auto-Label PR
         uses: actions/github-script@v7
         env:
