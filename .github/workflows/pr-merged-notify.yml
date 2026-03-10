@@ -7,7 +7,9 @@ on:
 jobs:
   notify:
     name: Generate & Distribute Release Notes
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,51 +31,94 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          # Extract work type from checkboxes
-          WORK_TYPE="Other"
-          if echo "$PR_BODY" | grep -q '\- \[x\] Bug'; then
-            WORK_TYPE="Bug Fix"
-          elif echo "$PR_BODY" | grep -q '\- \[x\] Feature'; then
-            WORK_TYPE="Feature"
-          elif echo "$PR_BODY" | grep -q '\- \[x\] Change Request'; then
-            WORK_TYPE="Change Request"
-          elif echo "$PR_BODY" | grep -q '\- \[x\] Critical Fix'; then
-            WORK_TYPE="Critical Fix"
+          IS_RELEASE="false"
+
+          # Detect release-please PRs
+          if echo "$PR_TITLE" | grep -q '^chore(main): release'; then
+            IS_RELEASE="true"
+
+            # Extract version from title: "chore(main): release poc-ai-release-pipeline 1.4.0" -> "1.4.0"
+            RELEASE_VERSION=$(echo "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+            DESCRIPTION="Release ${RELEASE_VERSION}"
+            SCOPE="release"
+
+            # Determine work type from changelog sections
+            HAS_FEATURES=$(echo "$PR_BODY" | grep -c '### New Features' || true)
+            HAS_BUGFIXES=$(echo "$PR_BODY" | grep -c '### Bug Fixes' || true)
+            if [ "$HAS_FEATURES" -gt 0 ]; then
+              WORK_TYPE="Feature"
+            elif [ "$HAS_BUGFIXES" -gt 0 ]; then
+              WORK_TYPE="Bug Fix"
+            else
+              WORK_TYPE="Change Request"
+            fi
+
+            # Extract all Jira IDs from changelog body
+            JIRA_IDS=$(echo "$PR_BODY" | grep -oE '[A-Z]+-[0-9]+' | sort -u | paste -sd ',' -)
+            JIRA_ID="${JIRA_IDS:-N/A}"
+
+            # Extract changelog entries as release notes (strip markdown links, commit hashes, empty parens)
+            RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/^### /,/^---/{/^### /d;/^---/d;p;}' | sed 's/\[#[0-9]*\]([^)]*)//g' | sed 's/\[[a-f0-9]*\]([^)]*)//g' | sed 's/()//g' | sed 's/  */ /g' | sed 's/^ *//;/^$/d' | head -20)
+
+            if [ -z "$RELEASE_NOTES" ]; then
+              RELEASE_NOTES="No release notes provided."
+            fi
+
+            # Check for breaking change markers
+            BREAKING="false"
+            if echo "$PR_BODY" | grep -qiE '(BREAKING CHANGE|breaking change|### ⚠)'; then
+              BREAKING="true"
+            fi
+          else
+            # Regular PR: extract from PR template fields
+            WORK_TYPE="Other"
+            if echo "$PR_BODY" | grep -q '\- \[x\] Bug'; then
+              WORK_TYPE="Bug Fix"
+            elif echo "$PR_BODY" | grep -q '\- \[x\] Feature'; then
+              WORK_TYPE="Feature"
+            elif echo "$PR_BODY" | grep -q '\- \[x\] Change Request'; then
+              WORK_TYPE="Change Request"
+            elif echo "$PR_BODY" | grep -q '\- \[x\] Critical Fix'; then
+              WORK_TYPE="Critical Fix"
+            fi
+
+            # Extract Jira ID from title
+            JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+            JIRA_ID="${JIRA_ID:-N/A}"
+
+            # Extract Release Notes section from PR body
+            RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/## Release Notes/,/## /{ /## Release Notes/d; /## /d; p; }' | sed '/^$/d' | head -20)
+
+            if [ -z "$RELEASE_NOTES" ] || echo "$RELEASE_NOTES" | grep -q 'Write a customer-readable description'; then
+              RELEASE_NOTES="No release notes provided."
+            fi
+
+            # Extract scope from PR title: type(scope): description -> scope
+            SCOPE=$(echo "$PR_TITLE" | grep -oP '(?<=\().*?(?=\))' | head -1)
+            SCOPE="${SCOPE:-general}"
+
+            # Clean description (remove type prefix and Jira ID)
+            DESCRIPTION=$(echo "$PR_TITLE" | sed 's/^[a-z]*([^)]*): //' | sed 's/^[A-Z]*-[0-9]* //')
+
+            # Check for breaking change markers
+            BREAKING="false"
+            if echo "$PR_BODY" | grep -qiE '(BREAKING CHANGE|breaking change|\!\()'; then
+              BREAKING="true"
+            fi
           fi
+
+          echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
           echo "work_type=$WORK_TYPE" >> "$GITHUB_OUTPUT"
-
-          # Extract Jira ID from title
-          JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
-          echo "jira_id=${JIRA_ID:-N/A}" >> "$GITHUB_OUTPUT"
-
-          # Extract Release Notes section from PR body
-          RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/## Release Notes/,/## /{ /## Release Notes/d; /## /d; p; }' | sed '/^$/d' | head -20)
-
-          if [ -z "$RELEASE_NOTES" ] || echo "$RELEASE_NOTES" | grep -q 'Write a customer-readable description'; then
-            RELEASE_NOTES="No release notes provided."
-          fi
+          echo "jira_id=$JIRA_ID" >> "$GITHUB_OUTPUT"
+          echo "scope=${SCOPE:-general}" >> "$GITHUB_OUTPUT"
+          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
 
           echo "release_notes<<EOF" >> "$GITHUB_OUTPUT"
           echo "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
-          # Extract scope from PR title: type(scope): description -> scope
-          SCOPE=$(echo "$PR_TITLE" | grep -oP '(?<=\().*?(?=\))' | head -1)
-          echo "scope=${SCOPE:-general}" >> "$GITHUB_OUTPUT"
-
-          # Clean description (remove type prefix and Jira ID)
-          DESCRIPTION=$(echo "$PR_TITLE" | sed 's/^[a-z]*([^)]*): //' | sed 's/^[A-Z]*-[0-9]* //')
-          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
-
-          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-
-          # Check for breaking change markers
-          BREAKING="false"
-          if echo "$PR_BODY" | grep -qiE '(BREAKING CHANGE|breaking change|\!\()'; then
-            BREAKING="true"
-          fi
-          echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
 
       - name: Extract version
         id: version
@@ -170,6 +215,7 @@ jobs:
           JIRA_ID: ${{ steps.metadata.outputs.jira_id }}
           DESCRIPTION: ${{ steps.metadata.outputs.description }}
           PR_URL: ${{ steps.metadata.outputs.pr_url }}
+          MERGED_AT: ${{ github.event.pull_request.merged_at }}
           CUSTOMER_NOTES: ${{ steps.rewrite.outputs.customer_notes }}
           VERSION: ${{ steps.version.outputs.version }}
           BREAKING: ${{ steps.metadata.outputs.breaking }}
@@ -185,33 +231,46 @@ jobs:
           # Build Features multi-select and Bug Fixes text based on work type
           FEATURES_JSON="[]"
           BUGFIXES_TEXT=""
-          case "$WORK_TYPE" in
-            "Feature")
+          IS_RELEASE="${{ steps.metadata.outputs.is_release }}"
+
+          if [ "$IS_RELEASE" = "true" ]; then
+            # For release PRs: extract features and bug fixes from changelog
+            FEATURES_TEXT=$(echo "$CUSTOMER_NOTES" | grep -i 'feature\|new\|add\|enhancement' | head -3 | tr '\n' '; ' || true)
+            BUGFIXES_TEXT=$(echo "$CUSTOMER_NOTES" | grep -i 'fix\|bug\|patch\|resolve' | head -3 | tr '\n' '; ' || true)
+            if [ -n "$FEATURES_TEXT" ]; then
               FEATURES_JSON='[{"name": "New Feature"}]'
-              ;;
-            "Change Request")
-              FEATURES_JSON='[{"name": "Enhancement"}]'
-              ;;
-            "Bug Fix")
-              BUGFIXES_TEXT="${DESCRIPTION}"
-              ;;
-            "Critical Fix")
-              BUGFIXES_TEXT="${DESCRIPTION}"
-              ;;
-          esac
+            fi
+            NOTION_TITLE="${DESCRIPTION}"
+          else
+            case "$WORK_TYPE" in
+              "Feature")
+                FEATURES_JSON='[{"name": "New Feature"}]'
+                ;;
+              "Change Request")
+                FEATURES_JSON='[{"name": "Enhancement"}]'
+                ;;
+              "Bug Fix")
+                BUGFIXES_TEXT="${DESCRIPTION}"
+                ;;
+              "Critical Fix")
+                BUGFIXES_TEXT="${DESCRIPTION}"
+                ;;
+            esac
+            NOTION_TITLE="${JIRA_ID} - ${DESCRIPTION}"
+          fi
 
           PAYLOAD=$(cat <<EOFPAYLOAD
           {
             "parent": { "database_id": "${NOTION_DATABASE_ID}" },
             "properties": {
               "Title": {
-                "title": [{ "text": { "content": "${JIRA_ID} - ${DESCRIPTION}" } }]
+                "title": [{ "text": { "content": "${NOTION_TITLE}" } }]
               },
               "Version": {
                 "rich_text": [{ "type": "text", "text": { "content": "${VERSION}" } }]
               },
               "Release Date": {
-                "date": { "start": "$(date -u +%Y-%m-%d)" }
+                "date": { "start": "$(echo "$MERGED_AT" | cut -dT -f1)" }
               },
               "Type": {
                 "select": { "name": "${WORK_TYPE}" }
