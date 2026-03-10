@@ -173,6 +173,7 @@ jobs:
           JIRA_ID: ${{ steps.metadata.outputs.jira_id }}
           DESCRIPTION: ${{ steps.metadata.outputs.description }}
           PR_URL: ${{ steps.metadata.outputs.pr_url }}
+          MERGED_AT: ${{ github.event.pull_request.merged_at }}
           CUSTOMER_NOTES: ${{ steps.rewrite.outputs.customer_notes }}
           VERSION: ${{ steps.version.outputs.version }}
           BREAKING: ${{ steps.metadata.outputs.breaking }}
@@ -214,7 +215,7 @@ jobs:
                 "rich_text": [{ "type": "text", "text": { "content": "${VERSION}" } }]
               },
               "Release Date": {
-                "date": { "start": "$(date -u +%Y-%m-%d)" }
+                "date": { "start": "$(echo "$MERGED_AT" | cut -dT -f1)" }
               },
               "Type": {
                 "select": { "name": "${WORK_TYPE}" }
