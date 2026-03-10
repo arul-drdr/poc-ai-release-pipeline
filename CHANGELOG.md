@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.4...poc-ai-release-pipeline-v1.3.0) (2026-03-10)
+
+
+### New Features
+
+* **ci:** TRAIN-1194 Auto-fill PR body from Jira task data ([#16](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/16)) ([5b4df39](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/5b4df39fd04b17de9cf54fc791087699586fb621))
+
 ## [1.2.4](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.3...poc-ai-release-pipeline-v1.2.4) (2026-03-10)
 
 
