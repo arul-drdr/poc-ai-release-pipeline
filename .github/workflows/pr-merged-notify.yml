@@ -180,7 +180,7 @@ jobs:
                 "select": { "name": "${WORK_TYPE}" }
               },
               "Status": {
-                "select": { "name": "Released" }
+                "status": { "name": "Released" }
               },
               "Summary": {
                 "rich_text": [{ "type": "text", "text": { "content": "${TRUNCATED_NOTES}" } }]
