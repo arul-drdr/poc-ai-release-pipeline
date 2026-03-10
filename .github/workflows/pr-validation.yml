@@ -98,6 +98,7 @@ jobs:
       - name: Fetch Jira Task Data
         id: jira_data
         if: steps.jira_id.outputs.found == 'true'
+        continue-on-error: true
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
@@ -110,15 +111,25 @@ jobs:
             exit 0
           fi
 
+          # Clean JIRA_BASE_URL - strip protocol and trailing slash if present
+          CLEAN_URL=$(echo "$JIRA_BASE_URL" | sed 's|^https\?://||' | sed 's|/$||')
+          echo "Connecting to Jira at: ${CLEAN_URL}"
+
           AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64)
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 \
             -H "Authorization: Basic ${AUTH}" \
             -H "Content-Type: application/json" \
-            "https://${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ID}?fields=issuetype,summary,description,status,customfield_10020")
+            "https://${CLEAN_URL}/rest/api/3/issue/${JIRA_ID}?fields=issuetype,summary,description,status,customfield_10020") || {
+            echo "Warning: Jira API call failed (curl error $?). Skipping Jira enrichment."
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Jira API response: HTTP ${HTTP_CODE}"
 
           if [ "$HTTP_CODE" -eq 200 ]; then
             ISSUE_TYPE=$(echo "$BODY" | jq -r '.fields.issuetype.name // "N/A"')
