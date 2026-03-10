@@ -1,0 +1,204 @@
+name: Weekly Release Summary
+
+on:
+  schedule:
+    # Every Friday at 5 PM UTC
+    - cron: "0 17 * * 5"
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: "Number of days to look back for releases"
+        required: false
+        default: "7"
+
+env:
+  # Comma-separated list of client email addresses
+  CLIENT_EMAILS: ""
+
+jobs:
+  weekly-summary:
+    name: Generate & Distribute Weekly Summary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch weekly releases
+        id: fetch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAYS_BACK: ${{ github.event.inputs.days_back || '7' }}
+        run: |
+          SINCE_DATE=$(date -u -d "${DAYS_BACK} days ago" +%Y-%m-%dT%H:%M:%SZ)
+          echo "Fetching releases since: $SINCE_DATE"
+
+          RELEASES=$(curl -s \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=50")
+
+          # Filter releases from the last N days
+          WEEKLY_RELEASES=$(echo "$RELEASES" | jq -r \
+            --arg since "$SINCE_DATE" \
+            '[.[] | select(.published_at >= $since and .draft == false)]')
+
+          RELEASE_COUNT=$(echo "$WEEKLY_RELEASES" | jq 'length')
+          echo "Found $RELEASE_COUNT releases in the last ${DAYS_BACK} days"
+
+          echo "release_count=$RELEASE_COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$RELEASE_COUNT" -gt 0 ]; then
+            # Build markdown summary of all releases
+            SUMMARY=""
+            while IFS= read -r release; do
+              TAG=$(echo "$release" | jq -r '.tag_name')
+              NAME=$(echo "$release" | jq -r '.name // .tag_name')
+              DATE=$(echo "$release" | jq -r '.published_at' | cut -d'T' -f1)
+              BODY=$(echo "$release" | jq -r '.body // "No release notes"' | head -30)
+
+              SUMMARY="${SUMMARY}### ${NAME} (${DATE})\n\n${BODY}\n\n---\n\n"
+            done < <(echo "$WEEKLY_RELEASES" | jq -c '.[]')
+
+            echo "raw_summary<<EOF" >> "$GITHUB_OUTPUT"
+            echo -e "$SUMMARY" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Set date range for the report
+          FROM_DATE=$(date -u -d "${DAYS_BACK} days ago" +%Y-%m-%d)
+          TO_DATE=$(date -u +%Y-%m-%d)
+          echo "date_range=${FROM_DATE} to ${TO_DATE}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate AI summary
+        id: ai_summary
+        if: steps.fetch.outputs.release_count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RAW_SUMMARY: ${{ steps.fetch.outputs.raw_summary }}
+          DATE_RANGE: ${{ steps.fetch.outputs.date_range }}
+          RELEASE_COUNT: ${{ steps.fetch.outputs.release_count }}
+        run: |
+          # Escape the summary for JSON
+          ESCAPED_SUMMARY=$(echo "$RAW_SUMMARY" | jq -Rs .)
+
+          RESPONSE=$(curl -s -X POST "https://models.github.ai/inference/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -d "{
+              \"model\": \"openai/gpt-4o\",
+              \"max_tokens\": 2000,
+              \"messages\": [
+                {
+                  \"role\": \"system\",
+                  \"content\": \"You are a professional technical writer creating a weekly release summary for healthcare software stakeholders. Write a polished executive summary followed by categorised highlights. Be concise and benefit-oriented.\"
+                },
+                {
+                  \"role\": \"user\",
+                  \"content\": \"Create a weekly release summary report for the period ${DATE_RANGE}. There were ${RELEASE_COUNT} release(s). Here are the individual release notes:\\n\\n${RAW_SUMMARY}\"
+                }
+              ]
+            }")
+
+          AI_SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [ -n "$AI_SUMMARY" ]; then
+            echo "summary<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$AI_SUMMARY" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "AI summary failed, using raw notes"
+            echo "summary<<EOF" >> "$GITHUB_OUTPUT"
+            echo -e "# Weekly Release Summary\n\n**Period:** ${DATE_RANGE}\n**Releases:** ${RELEASE_COUNT}\n\n${RAW_SUMMARY}" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate no-release message
+        id: no_releases
+        if: steps.fetch.outputs.release_count == '0'
+        env:
+          DATE_RANGE: ${{ steps.fetch.outputs.date_range }}
+        run: |
+          echo "summary<<EOF" >> "$GITHUB_OUTPUT"
+          echo "# Weekly Release Summary" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "**Period:** ${DATE_RANGE}" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "No releases were published this week." >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Post to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SUMMARY: ${{ steps.ai_summary.outputs.summary || steps.no_releases.outputs.summary }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "Warning: SLACK_WEBHOOK_URL not configured, skipping Slack post"
+            exit 0
+          fi
+
+          # Truncate for Slack (3000 char limit per text block)
+          TRUNCATED=$(echo "$SUMMARY" | head -c 2800)
+
+          PAYLOAD=$(cat <<EOFPAYLOAD
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "Weekly Release Summary"
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "${TRUNCATED}"
+                }
+              }
+            ]
+          }
+          EOFPAYLOAD
+          )
+
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL"
+
+          echo "Weekly summary posted to Slack"
+
+      - name: Send client email
+        env:
+          EMAIL_API_KEY: ${{ secrets.EMAIL_API_KEY }}
+          SUMMARY: ${{ steps.ai_summary.outputs.summary || steps.no_releases.outputs.summary }}
+        run: |
+          if [ -z "$EMAIL_API_KEY" ] || [ -z "$CLIENT_EMAILS" ]; then
+            echo "Warning: EMAIL_API_KEY or CLIENT_EMAILS not configured, skipping email"
+            exit 0
+          fi
+
+          # Build recipient list from comma-separated CLIENT_EMAILS
+          TO_ARRAY=$(echo "$CLIENT_EMAILS" | tr ',' '\n' | while read -r email; do
+            echo "{\"email\": \"$(echo "$email" | xargs)\"}"
+          done | paste -sd ',' -)
+
+          PAYLOAD=$(cat <<EOFPAYLOAD
+          {
+            "personalizations": [{ "to": [${TO_ARRAY}] }],
+            "from": { "email": "releases@yourcompany.com", "name": "Release Updates" },
+            "subject": "Weekly Release Summary - $(date -u +%Y-%m-%d)",
+            "content": [{
+              "type": "text/plain",
+              "value": "${SUMMARY}"
+            }]
+          }
+          EOFPAYLOAD
+          )
+
+          curl -s -X POST "https://api.sendgrid.com/v3/mail/send" \
+            -H "Authorization: Bearer ${EMAIL_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+          echo "Weekly summary email sent"

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "poc-ai-release-pipeline",
+      "bump-minor-pre-major": true,
+      "draft-pull-request": false,
+      "extra-files": [
+        "Directory.Build.props"
+      ],
+      "changelog-sections": [
+        { "type": "feat", "section": "New Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "critical", "section": "Critical Fixes" },
+        { "type": "chore", "section": "Maintenance" },
+        { "type": "refactor", "section": "Improvements" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "ci", "section": "CI/CD", "hidden": true },
+        { "type": "build", "section": "Build", "hidden": true },
+        { "type": "test", "section": "Tests", "hidden": true }
+      ]
+    }
+  }
+}

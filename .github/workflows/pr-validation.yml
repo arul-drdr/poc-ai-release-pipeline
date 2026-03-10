@@ -1,0 +1,266 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+env:
+  # Set to 'warn' for soft enforcement (comments only, checks pass)
+  # Set to 'enforce' to block merge on validation failures
+  ENFORCEMENT_MODE: warn
+
+jobs:
+  validate:
+    name: Validate PR
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Check PR Title Format
+        id: title_check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PATTERN='^(feat|fix|chore|docs|refactor|perf|test|ci|build|critical)\(.+\):.+'
+          if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
+            MSG="PR title does not match required format.\n\nExpected: \`type(scope): JIRA-ID description\`\nExample: \`feat(patient): PROJ-1234 Add address validation\`\n\nValid types: feat, fix, chore, docs, refactor, perf, test, ci, build, critical"
+            echo "error_msg<<EOF" >> "$GITHUB_OUTPUT"
+            echo -e "$MSG" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate PR Body
+        id: body_check
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          ERRORS=""
+
+          # Check Work Type - at least one box must be checked
+          if ! echo "$PR_BODY" | grep -qE '\- \[x\] (Bug|Feature|Change Request|Critical Fix)'; then
+            ERRORS="${ERRORS}- **Work Type**: Please select at least one work type (Bug / Feature / Change Request / Critical Fix)\n"
+          fi
+
+          # Check Jira Task ID placeholder
+          if echo "$PR_BODY" | grep -q 'PROJ-0000'; then
+            ERRORS="${ERRORS}- **Jira Task ID**: Replace \`PROJ-0000\` with your actual Jira task ID\n"
+          fi
+
+          # Check Summary placeholder
+          if echo "$PR_BODY" | grep -q 'Describe what was changed and why'; then
+            ERRORS="${ERRORS}- **Summary of Changes**: Replace the placeholder with an actual description of your changes\n"
+          fi
+
+          # Check Release Notes placeholder
+          if echo "$PR_BODY" | grep -q 'Write a customer-readable description of this change'; then
+            ERRORS="${ERRORS}- **Release Notes**: Write a customer-readable description of this change\n"
+          fi
+
+          # Check Acceptance Criteria placeholder
+          if echo "$PR_BODY" | grep -q 'Paste or link the acceptance criteria from Jira'; then
+            ERRORS="${ERRORS}- **Acceptance Criteria**: Paste or link the acceptance criteria from Jira\n"
+          fi
+
+          if [ -n "$ERRORS" ]; then
+            echo "error_msg<<EOF" >> "$GITHUB_OUTPUT"
+            echo -e "The following PR template fields need to be completed:\n\n${ERRORS}" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract Jira ID
+        id: jira_id
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Try to extract Jira ID from title first, then body
+          JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+          if [ -z "$JIRA_ID" ]; then
+            JIRA_ID=$(echo "$PR_BODY" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+          fi
+
+          if [ -n "$JIRA_ID" ]; then
+            echo "jira_id=$JIRA_ID" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Found Jira ID: $JIRA_ID"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Jira ID found in PR title or body"
+          fi
+
+      - name: Fetch Jira Task Data
+        id: jira_data
+        if: steps.jira_id.outputs.found == 'true'
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_ID: ${{ steps.jira_id.outputs.jira_id }}
+        run: |
+          if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_USER_EMAIL" ] || [ -z "$JIRA_API_TOKEN" ]; then
+            echo "Jira secrets not configured, skipping Jira fetch"
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64)
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Content-Type: application/json" \
+            "https://${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ID}?fields=issuetype,summary,description,status,customfield_10020")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            ISSUE_TYPE=$(echo "$BODY" | jq -r '.fields.issuetype.name // "N/A"')
+            SUMMARY=$(echo "$BODY" | jq -r '.fields.summary // "N/A"')
+            STATUS=$(echo "$BODY" | jq -r '.fields.status.name // "N/A"')
+            DESCRIPTION=$(echo "$BODY" | jq -r '.fields.description.content[0].content[0].text // "No description"' | head -5)
+
+            echo "fetched=true" >> "$GITHUB_OUTPUT"
+            echo "issue_type=$ISSUE_TYPE" >> "$GITHUB_OUTPUT"
+            echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+            echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+            echo "description<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$DESCRIPTION" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "Jira API returned HTTP $HTTP_CODE"
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auto-Label PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const labels = [];
+
+            if (title.startsWith('feat')) labels.push('feature');
+            else if (title.startsWith('fix')) labels.push('bug');
+            else if (title.startsWith('critical')) labels.push('critical-fix');
+            else if (title.startsWith('chore') || title.startsWith('ci') || title.startsWith('build')) labels.push('maintenance');
+            else if (title.startsWith('docs')) labels.push('documentation');
+            else if (title.startsWith('refactor') || title.startsWith('perf')) labels.push('improvement');
+
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: labels
+              });
+              console.log(`Added labels: ${labels.join(', ')}`);
+            }
+
+      - name: Add Jira Context as PR Comment
+        if: steps.jira_data.outputs.fetched == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jiraId = '${{ steps.jira_id.outputs.jira_id }}';
+            const issueType = '${{ steps.jira_data.outputs.issue_type }}';
+            const summary = '${{ steps.jira_data.outputs.summary }}';
+            const status = '${{ steps.jira_data.outputs.status }}';
+            const description = `${{ steps.jira_data.outputs.description }}`;
+            const jiraUrl = `https://${{ secrets.JIRA_BASE_URL }}/browse/${jiraId}`;
+
+            const body = `## Jira Task Context\n\n` +
+              `| Field | Value |\n` +
+              `|-------|-------|\n` +
+              `| **Task** | [${jiraId}](${jiraUrl}) |\n` +
+              `| **Type** | ${issueType} |\n` +
+              `| **Summary** | ${summary} |\n` +
+              `| **Status** | ${status} |\n\n` +
+              `### Description\n${description}\n\n` +
+              `---\n*Auto-generated by PR Validation workflow*`;
+
+            // Check if a Jira context comment already exists, update it instead of creating duplicates
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number
+            });
+
+            const existing = comments.data.find(c => c.body.includes('## Jira Task Context'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: body
+              });
+            }
+
+      - name: Report Validation Result
+        if: steps.title_check.outputs.failed == 'true' || steps.body_check.outputs.failed == 'true'
+        uses: actions/github-script@v7
+        env:
+          ENFORCEMENT_MODE: ${{ env.ENFORCEMENT_MODE }}
+          TITLE_FAILED: ${{ steps.title_check.outputs.failed }}
+          TITLE_ERROR: ${{ steps.title_check.outputs.error_msg }}
+          BODY_FAILED: ${{ steps.body_check.outputs.failed }}
+          BODY_ERROR: ${{ steps.body_check.outputs.error_msg }}
+        with:
+          script: |
+            let message = '## PR Validation Issues\n\n';
+
+            if (process.env.TITLE_FAILED === 'true') {
+              message += '### Title Format\n' + process.env.TITLE_ERROR + '\n\n';
+            }
+            if (process.env.BODY_FAILED === 'true') {
+              message += '### Missing Fields\n' + process.env.BODY_ERROR + '\n\n';
+            }
+
+            const mode = process.env.ENFORCEMENT_MODE;
+            if (mode === 'warn') {
+              message += '> **Note**: Validation is currently in **warning mode**. These issues will block merge once enforcement is enabled.';
+            }
+
+            // Post or update validation comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number
+            });
+
+            const existing = comments.data.find(c => c.body.includes('## PR Validation Issues'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: message
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: message
+              });
+            }
+
+            if (mode === 'enforce') {
+              core.setFailed('PR validation failed. Please fix the issues above.');
+            } else {
+              core.warning('PR validation issues found (warning mode - not blocking).');
+            }

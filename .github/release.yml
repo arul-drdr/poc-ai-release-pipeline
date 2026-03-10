@@ -1,0 +1,22 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+  categories:
+    - title: New Features
+      labels:
+        - feature
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Critical Fixes
+      labels:
+        - critical-fix
+    - title: Maintenance & Improvements
+      labels:
+        - maintenance
+        - improvement
+        - dependencies
+    - title: Documentation
+      labels:
+        - documentation

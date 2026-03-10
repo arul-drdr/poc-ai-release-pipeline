@@ -1,0 +1,229 @@
+name: Release Distribution
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  rewrite-notes:
+    name: Rewrite Release Notes
+    runs-on: ubuntu-latest
+    outputs:
+      customer_notes: ${{ steps.rewrite.outputs.customer_notes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Rewrite release notes with AI
+        id: rewrite
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo '${{ github.event.release.body }}' | node scripts/rewrite-release-notes.js
+
+          if [ -f customer-release-notes.md ]; then
+            echo "customer_notes<<EOF" >> "$GITHUB_OUTPUT"
+            cat customer-release-notes.md >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "customer_notes<<EOF" >> "$GITHUB_OUTPUT"
+            echo '${{ github.event.release.body }}' >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload customer release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-release-notes
+          path: customer-release-notes.md
+
+  notify-slack:
+    name: Notify Slack
+    needs: rewrite-notes
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Post to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "Warning: SLACK_WEBHOOK_URL not configured, skipping Slack notification"
+            exit 0
+          fi
+
+          # Truncate release body to 2500 chars for Slack
+          TRUNCATED_BODY=$(echo "$RELEASE_BODY" | head -c 2500)
+
+          PAYLOAD=$(cat <<EOFPAYLOAD
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "New Release: ${TAG_NAME}",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "A new release has been published.\n\n*Tag:* \`${TAG_NAME}\`\n*Date:* $(date -u +%Y-%m-%d)"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Release Notes:*\n${TRUNCATED_BODY}"
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "View Full Release"
+                    },
+                    "url": "${RELEASE_URL}"
+                  }
+                ]
+              }
+            ]
+          }
+          EOFPAYLOAD
+          )
+
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL"
+
+          echo "Slack notification sent"
+
+  update-notion:
+    name: Update Notion
+    needs: rewrite-notes
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Create Notion page
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          CUSTOMER_NOTES: ${{ needs.rewrite-notes.outputs.customer_notes }}
+        run: |
+          if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
+            echo "Warning: Notion secrets not configured, skipping Notion update"
+            exit 0
+          fi
+
+          # Truncate notes to 2000 chars (Notion rich text block limit)
+          TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
+
+          PAYLOAD=$(cat <<EOFPAYLOAD
+          {
+            "parent": { "database_id": "${NOTION_DATABASE_ID}" },
+            "properties": {
+              "Version": {
+                "title": [{ "text": { "content": "${TAG_NAME}" } }]
+              },
+              "Release Date": {
+                "date": { "start": "$(date -u +%Y-%m-%d)" }
+              },
+              "Status": {
+                "select": { "name": "Released" }
+              }
+            },
+            "children": [
+              {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                  "rich_text": [{ "type": "text", "text": { "content": "Release Notes" } }]
+                }
+              },
+              {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                  "rich_text": [{ "type": "text", "text": { "content": "${TRUNCATED_NOTES}" } }]
+                }
+              }
+            ]
+          }
+          EOFPAYLOAD
+          )
+
+          # Retry logic for Notion API rate limits
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              "https://api.notion.com/v1/pages" \
+              -H "Authorization: Bearer ${NOTION_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Notion-Version: 2022-06-28" \
+              -d "$PAYLOAD")
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              echo "Notion page created successfully"
+              break
+            elif [ "$HTTP_CODE" -eq 429 ]; then
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              WAIT_TIME=$((RETRY_COUNT * 2))
+              echo "Rate limited. Retrying in ${WAIT_TIME}s (attempt ${RETRY_COUNT}/${MAX_RETRIES})..."
+              sleep $WAIT_TIME
+            else
+              echo "Notion API error (HTTP ${HTTP_CODE})"
+              echo "$RESPONSE" | sed '$d'
+              exit 1
+            fi
+          done
+
+          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "Failed after ${MAX_RETRIES} retries"
+            exit 1
+          fi
+
+  update-portal:
+    name: Update User Portal
+    needs: rewrite-notes
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Update portal (placeholder)
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          echo "Portal update placeholder for release ${TAG_NAME}"
+          echo ""
+          echo "To implement, add one of the following:"
+          echo "  1. API call to your portal CMS backend"
+          echo "  2. Git commit to the portal repo with updated release notes HTML"
+          echo "  3. Webhook trigger to your portal deployment pipeline"
+          echo ""
+          echo "The customer-facing release notes are available from the"
+          echo "rewrite-notes job output and as a build artifact."
