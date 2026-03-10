@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.3.0...poc-ai-release-pipeline-v1.4.0) (2026-03-10)
+
+
+### New Features
+
+* **utils:** TRAIN-1365 Add string reverse utility ([#19](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/19)) ([340cd9a](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/340cd9afb4174b9854d44ed83ef1c56c596ff951))
+
 ## [1.3.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.2.4...poc-ai-release-pipeline-v1.3.0) (2026-03-10)
 
 
