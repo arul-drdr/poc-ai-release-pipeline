@@ -182,9 +182,9 @@ jobs:
           # Truncate notes to 1900 chars (Notion block limit is 2000)
           TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
 
-          # Build Features and Bug Fixes multi-select arrays based on work type
+          # Build Features multi-select and Bug Fixes text based on work type
           FEATURES_JSON="[]"
-          BUGFIXES_JSON="[]"
+          BUGFIXES_TEXT=""
           case "$WORK_TYPE" in
             "Feature")
               FEATURES_JSON='[{"name": "New Feature"}]'
@@ -193,18 +193,12 @@ jobs:
               FEATURES_JSON='[{"name": "Enhancement"}]'
               ;;
             "Bug Fix")
-              BUGFIXES_JSON='[{"name": "Bug Fix"}]'
+              BUGFIXES_TEXT="${DESCRIPTION}"
               ;;
             "Critical Fix")
-              BUGFIXES_JSON='[{"name": "Critical Fix"}, {"name": "Security"}]'
+              BUGFIXES_TEXT="${DESCRIPTION}"
               ;;
           esac
-
-          # Breaking change checkbox
-          BREAKING_VAL=false
-          if [ "$BREAKING" = "true" ]; then
-            BREAKING_VAL=true
-          fi
 
           PAYLOAD=$(cat <<EOFPAYLOAD
           {
@@ -232,10 +226,7 @@ jobs:
                 "multi_select": ${FEATURES_JSON}
               },
               "Bug Fixes": {
-                "multi_select": ${BUGFIXES_JSON}
-              },
-              "Breaking Change": {
-                "checkbox": ${BREAKING_VAL}
+                "rich_text": [{ "type": "text", "text": { "content": "${BUGFIXES_TEXT}" } }]
               }
             },
             "children": [
