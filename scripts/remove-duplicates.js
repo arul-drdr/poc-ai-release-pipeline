@@ -6,7 +6,7 @@
  * Time complexity: O(n)
  * Space complexity: O(n)
  *
- * @param {Array} arr - The input array
+ * @param {Array} arr - The input array (any type of elements supported)
  * @returns {Array} A new array with duplicates removed
  */
 function removeDuplicates(arr) {
