@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.8.1...poc-ai-release-pipeline-v1.9.0) (2026-03-11)
+
+
+### New Features
+
+* TRAIN-1369, TRAIN-1368 ([#37](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/37)) ([0ccb9f1](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/0ccb9f1abc4e955bca306b6dd48f4c7cf879f624))
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1369 Change Task Id to multi_select for Notion schema ([#39](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/39)) ([aa0d44e](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/aa0d44eff275cf0ef5366cc05c882a5095236bda))
+
 ## [1.8.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.8.0...poc-ai-release-pipeline-v1.8.1) (2026-03-11)
 
 
