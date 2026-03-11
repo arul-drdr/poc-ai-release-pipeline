@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.5.0...poc-ai-release-pipeline-v1.6.0) (2026-03-11)
+
+
+### New Features
+
+* **utils:** TRAIN-1366 Add FizzBuzz utility function ([#25](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/25)) ([5985afb](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/5985afbd458418734dace3fc5de360bc58cf9ef6))
+
 ## [1.5.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.4.1...poc-ai-release-pipeline-v1.5.0) (2026-03-11)
 
 
