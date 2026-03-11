@@ -21,9 +21,9 @@
 const NVIDIA_API_URL =
   "https://integrate.api.nvidia.com/v1/chat/completions";
 const MODEL = "meta/llama-3.3-70b-instruct";
-const MAX_TOKENS = 4000;
-const MAX_DIFF_CHARS = 15000;
-const TIMEOUT_MS = 120000; // 2 minute timeout
+const MAX_TOKENS = 2000;
+const MAX_DIFF_CHARS = 8000;
+const TIMEOUT_MS = 180000; // 3 minute timeout
 
 const SYSTEM_PROMPT = `You are a senior code reviewer for a healthcare software product (.NET Core/C#).
 Review the PR diff and provide actionable feedback.

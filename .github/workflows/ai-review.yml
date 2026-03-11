@@ -34,19 +34,20 @@ jobs:
             exit 0
           fi
 
-          # Get the PR diff
-          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }})
+          # Get the PR diff and save to file
+          gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > pr-diff.txt 2>/dev/null || true
 
-          if [ -z "$DIFF" ]; then
+          if [ ! -s pr-diff.txt ]; then
             echo "No diff found, skipping review"
             exit 0
           fi
 
-          # Run AI review
-          REVIEW=$(echo "$DIFF" | node scripts/ai-review-pr.js)
+          echo "Diff size: $(wc -c < pr-diff.txt) bytes"
 
-          # Save review to file for the comment step
-          echo "$REVIEW" > ai-review-output.md
+          # Run AI review — stdout = review markdown, stderr = status logs
+          node scripts/ai-review-pr.js < pr-diff.txt > ai-review-output.md || true
+
+          echo "Review output size: $(wc -c < ai-review-output.md) bytes"
 
       - name: Post review comment
         if: success()
