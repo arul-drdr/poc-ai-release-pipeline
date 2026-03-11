@@ -307,44 +307,33 @@ jobs:
             "Critical") RISK_EMOJI="🔴" ;;
           esac
 
-          PAYLOAD=$(cat <<EOFPAYLOAD
-          {
-            "blocks": [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "Deployed: ${DESCRIPTION}"
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  { "type": "mrkdwn", "text": "*Type:* ${WORK_TYPE}" },
-                  { "type": "mrkdwn", "text": "*Scope:* ${SCOPE}" },
-                  { "type": "mrkdwn", "text": "*Jira:* ${JIRA_ID}" },
-                  { "type": "mrkdwn", "text": "*Risk:* ${RISK_EMOJI} ${RISK}" },
-                  { "type": "mrkdwn", "text": "*PR:* <${PR_URL}|#${PR_NUMBER}>" }
-                ]
-              },
-              {
-                "type": "divider"
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "*Release Notes:*\n${TRUNCATED_NOTES}"
-                }
-              }
-            ]
-          }
-          EOFPAYLOAD
-          )
+          jq -n \
+            --arg desc "$DESCRIPTION" \
+            --arg work_type "$WORK_TYPE" \
+            --arg scope "$SCOPE" \
+            --arg jira_id "$JIRA_ID" \
+            --arg risk "$RISK_EMOJI $RISK" \
+            --arg pr_link "<${PR_URL}|#${PR_NUMBER}>" \
+            --arg notes "*Release Notes:*\n$TRUNCATED_NOTES" \
+            '{
+              blocks: [
+                { type: "header", text: { type: "plain_text", text: ("Deployed: " + $desc) } },
+                { type: "section", fields: [
+                    { type: "mrkdwn", text: ("*Type:* " + $work_type) },
+                    { type: "mrkdwn", text: ("*Scope:* " + $scope) },
+                    { type: "mrkdwn", text: ("*Jira:* " + $jira_id) },
+                    { type: "mrkdwn", text: ("*Risk:* " + $risk) },
+                    { type: "mrkdwn", text: ("*PR:* " + $pr_link) }
+                  ]
+                },
+                { type: "divider" },
+                { type: "section", text: { type: "mrkdwn", text: $notes } }
+              ]
+            }' > /tmp/slack-payload.json
 
           curl -s -X POST \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
+            -d @/tmp/slack-payload.json \
             "$SLACK_WEBHOOK_URL"
 
           echo "Slack notification sent for PR #${PR_NUMBER}"
@@ -412,80 +401,67 @@ jobs:
             NOTION_TITLE="${JIRA_ID} - ${DESCRIPTION}"
           fi
 
-          PAYLOAD=$(cat <<EOFPAYLOAD
-          {
-            "parent": { "database_id": "${NOTION_DATABASE_ID}" },
-            "properties": {
-              "Title": {
-                "title": [{ "text": { "content": "${NOTION_TITLE}" } }]
+          RELEASE_DATE=$(echo "$MERGED_AT" | cut -dT -f1)
+
+          # Build Contributors multi_select JSON array from comma-separated names
+          CONTRIBUTORS_JSON=$(echo "${CONTRIBUTORS:-N/A}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | sed '/^$/d' | jq -R '{ name: . }' | jq -s '.')
+
+          jq -n \
+            --arg db_id "$NOTION_DATABASE_ID" \
+            --arg title "$NOTION_TITLE" \
+            --arg version "$VERSION" \
+            --arg release_date "$RELEASE_DATE" \
+            --arg work_type "$WORK_TYPE" \
+            --arg summary "$TRUNCATED_NOTES" \
+            --argjson features "$FEATURES_JSON" \
+            --arg bugfixes "$BUGFIXES_TEXT" \
+            --argjson contributors "$CONTRIBUTORS_JSON" \
+            --arg pr_created_by "${PR_CREATED_BY:-N/A}" \
+            --arg task_id "$JIRA_ID" \
+            --arg pr_url "$PR_URL" \
+            '{
+              parent: { database_id: $db_id },
+              properties: {
+                "Title": { title: [{ text: { content: $title } }] },
+                "Version": { rich_text: [{ type: "text", text: { content: $version } }] },
+                "Release Date": { date: { start: $release_date } },
+                "Type": { select: { name: $work_type } },
+                "Status": { status: { name: "Released" } },
+                "Summary": { rich_text: [{ type: "text", text: { content: $summary } }] },
+                "Features": { multi_select: $features },
+                "Bug Fixes": { rich_text: [{ type: "text", text: { content: $bugfixes } }] },
+                "Contributors": { multi_select: $contributors },
+                "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] },
+                "Task Id": { rich_text: [{ type: "text", text: { content: $task_id } }] }
               },
-              "Version": {
-                "rich_text": [{ "type": "text", "text": { "content": "${VERSION}" } }]
-              },
-              "Release Date": {
-                "date": { "start": "$(echo "$MERGED_AT" | cut -dT -f1)" }
-              },
-              "Type": {
-                "select": { "name": "${WORK_TYPE}" }
-              },
-              "Status": {
-                "status": { "name": "Released" }
-              },
-              "Summary": {
-                "rich_text": [{ "type": "text", "text": { "content": "${TRUNCATED_NOTES}" } }]
-              },
-              "Features": {
-                "multi_select": ${FEATURES_JSON}
-              },
-              "Bug Fixes": {
-                "rich_text": [{ "type": "text", "text": { "content": "${BUGFIXES_TEXT}" } }]
-              },
-              "Contributors": {
-                "rich_text": [{ "type": "text", "text": { "content": "${CONTRIBUTORS:-N/A}" } }]
-              },
-              "PR Created By": {
-                "rich_text": [{ "type": "text", "text": { "content": "${PR_CREATED_BY:-N/A}" } }]
-              },
-              "Task ID": {
-                "rich_text": [{ "type": "text", "text": { "content": "${JIRA_ID}" } }]
-              }
-            },
-            "children": [
-              {
-                "object": "block",
-                "type": "heading_2",
-                "heading_2": {
-                  "rich_text": [{ "type": "text", "text": { "content": "Release Notes" } }]
+              children: [
+                {
+                  object: "block",
+                  type: "heading_2",
+                  heading_2: { rich_text: [{ type: "text", text: { content: "Release Notes" } }] }
+                },
+                {
+                  object: "block",
+                  type: "paragraph",
+                  paragraph: { rich_text: [{ type: "text", text: { content: $summary } }] }
+                },
+                {
+                  object: "block",
+                  type: "heading_3",
+                  heading_3: { rich_text: [{ type: "text", text: { content: "Links" } }] }
+                },
+                {
+                  object: "block",
+                  type: "paragraph",
+                  paragraph: {
+                    rich_text: [
+                      { type: "text", text: { content: "Pull Request: " } },
+                      { type: "text", text: { content: $pr_url, link: { url: $pr_url } } }
+                    ]
+                  }
                 }
-              },
-              {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                  "rich_text": [{ "type": "text", "text": { "content": "${TRUNCATED_NOTES}" } }]
-                }
-              },
-              {
-                "object": "block",
-                "type": "heading_3",
-                "heading_3": {
-                  "rich_text": [{ "type": "text", "text": { "content": "Links" } }]
-                }
-              },
-              {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                  "rich_text": [
-                    { "type": "text", "text": { "content": "Pull Request: " } },
-                    { "type": "text", "text": { "content": "${PR_URL}", "link": { "url": "${PR_URL}" } } }
-                  ]
-                }
-              }
-            ]
-          }
-          EOFPAYLOAD
-          )
+              ]
+            }' > /tmp/notion-payload.json
 
           MAX_RETRIES=3
           RETRY_COUNT=0
@@ -496,7 +472,7 @@ jobs:
               -H "Authorization: Bearer ${NOTION_API_KEY}" \
               -H "Content-Type: application/json" \
               -H "Notion-Version: 2022-06-28" \
-              -d "$PAYLOAD")
+              -d @/tmp/notion-payload.json)
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 
