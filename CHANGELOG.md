@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.4.1...poc-ai-release-pipeline-v1.5.0) (2026-03-11)
+
+
+### New Features
+
+* **ci:** TRAIN-1365 Add AI-powered code review, categorization, and release notes ([#23](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/23)) ([a46eedc](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/a46eedc3cbda4726ad1fb33e0909ae075969c082))
+
 ## [1.4.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.4.0...poc-ai-release-pipeline-v1.4.1) (2026-03-10)
 
 
