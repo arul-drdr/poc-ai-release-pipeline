@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.8.0...poc-ai-release-pipeline-v1.8.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1369 Fix Notion and Slack JSON payload construction ([#35](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/35)) ([3e6f4aa](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/3e6f4aa7e48da919e4cb4955c2206319cda7b471))
+
 ## [1.8.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.7.0...poc-ai-release-pipeline-v1.8.0) (2026-03-11)
 
 
