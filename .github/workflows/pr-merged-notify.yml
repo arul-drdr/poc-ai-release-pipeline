@@ -417,6 +417,7 @@ jobs:
             --arg bugfixes "$BUGFIXES_TEXT" \
             --argjson contributors "$CONTRIBUTORS_JSON" \
             --arg pr_created_by "${PR_CREATED_BY:-N/A}" \
+            --arg task_id "$JIRA_ID" \
             --arg pr_url "$PR_URL" \
             '{
               parent: { database_id: $db_id },
@@ -430,7 +431,8 @@ jobs:
                 "Features": { multi_select: $features },
                 "Bug Fixes": { rich_text: [{ type: "text", text: { content: $bugfixes } }] },
                 "Contributors": { multi_select: $contributors },
-                "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] }
+                "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] },
+                "Task Id": { rich_text: [{ type: "text", text: { content: $task_id } }] }
               },
               children: [
                 {
