@@ -21,7 +21,7 @@ module.exports = { capitalizeWords };
 // Run if executed directly
 if (require.main === module) {
   const testCases = [
-    { input: "hello world", expected: "Hello World" },
+    { input: "hello worlds", expected: "Hello World" },
     { input: "the quick brown fox", expected: "The Quick Brown Fox" },
     { input: "already Capitalized Words", expected: "Already Capitalized Words" },
     { input: "ALL UPPERCASE", expected: "ALL UPPERCASE" },
