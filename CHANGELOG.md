@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.9.0...poc-ai-release-pipeline-v1.10.0) (2026-03-11)
+
+
+### New Features
+
+* TRAIN-1369, TRAIN-1368 ([#40](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/40)) ([8dd172b](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/8dd172b4eb4a111eaff72e7eb30f96064c81725c))
+
 ## [1.9.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.8.1...poc-ai-release-pipeline-v1.9.0) (2026-03-11)
 
 
