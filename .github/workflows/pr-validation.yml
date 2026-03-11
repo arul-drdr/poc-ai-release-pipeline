@@ -76,25 +76,36 @@ jobs:
             echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Extract Jira ID
+      - name: Extract Jira IDs
         id: jira_id
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Try to extract Jira ID from title first, then body
-          JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
-          if [ -z "$JIRA_ID" ]; then
-            JIRA_ID=$(echo "$PR_BODY" | grep -oE '[A-Z]+-[0-9]+' | head -1)
-          fi
+          # Collect Jira IDs from PR title
+          TITLE_IDS=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' || true)
 
-          if [ -n "$JIRA_ID" ]; then
-            echo "jira_id=$JIRA_ID" >> "$GITHUB_OUTPUT"
+          # Collect Jira IDs from commit messages
+          COMMIT_IDS=$(gh pr view ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --json commits --jq '.commits[].messageHeadline' 2>/dev/null \
+            | grep -oE '[A-Z]+-[0-9]+' || true)
+
+          # Combine, deduplicate, preserve order (title first)
+          ALL_IDS=$(echo -e "${TITLE_IDS}\n${COMMIT_IDS}" | sed '/^$/d' | awk '!seen[$0]++')
+          FIRST_ID=$(echo "$ALL_IDS" | head -1)
+          ID_COUNT=$(echo "$ALL_IDS" | wc -l | tr -d ' ')
+          ID_CSV=$(echo "$ALL_IDS" | paste -sd ',' -)
+
+          if [ -n "$FIRST_ID" ]; then
+            echo "jira_id=$FIRST_ID" >> "$GITHUB_OUTPUT"
+            echo "all_ids=$ID_CSV" >> "$GITHUB_OUTPUT"
+            echo "id_count=$ID_COUNT" >> "$GITHUB_OUTPUT"
             echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "Found Jira ID: $JIRA_ID"
+            echo "Found $ID_COUNT Jira ID(s): $ID_CSV"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "No Jira ID found in PR title or body"
+            echo "No Jira ID found in PR title or commits"
           fi
 
       - name: Fetch Jira Task Data
@@ -105,7 +116,7 @@ jobs:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-          JIRA_ID: ${{ steps.jira_id.outputs.jira_id }}
+          ALL_IDS: ${{ steps.jira_id.outputs.all_ids }}
         run: |
           if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_USER_EMAIL" ] || [ -z "$JIRA_API_TOKEN" ]; then
             echo "Jira secrets not configured, skipping Jira fetch"
@@ -113,49 +124,87 @@ jobs:
             exit 0
           fi
 
-          # Clean JIRA_BASE_URL - strip protocol and trailing slash if present
           CLEAN_URL=$(echo "$JIRA_BASE_URL" | sed 's|^https\?://||' | sed 's|/$||')
-          echo "Connecting to Jira at: ${CLEAN_URL}"
-
           AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64 -w 0)
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 \
-            -H "Authorization: Basic ${AUTH}" \
-            -H "Content-Type: application/json" \
-            "https://${CLEAN_URL}/rest/api/3/issue/${JIRA_ID}?fields=issuetype,summary,description,status,customfield_10020") || {
-            echo "Warning: Jira API call failed (curl error $?). Skipping Jira enrichment."
-            echo "fetched=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
+          # Fetch data for each Jira ID
+          TASK_TABLE=""
+          ALL_DESCRIPTIONS=""
+          FIRST_ISSUE_TYPE=""
+          FIRST_SUMMARY=""
+          ALL_ASSIGNEES=""
+          FETCH_COUNT=0
 
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
+          IFS=',' read -ra IDS <<< "$ALL_IDS"
+          for JIRA_ID in "${IDS[@]}"; do
+            echo "Fetching Jira data for $JIRA_ID..."
 
-          echo "Jira API response: HTTP ${HTTP_CODE}"
+            RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 \
+              -H "Authorization: Basic ${AUTH}" \
+              -H "Content-Type: application/json" \
+              "https://${CLEAN_URL}/rest/api/3/issue/${JIRA_ID}?fields=issuetype,summary,description,status,assignee") || continue
 
-          if [ "$HTTP_CODE" -eq 200 ]; then
-            ISSUE_TYPE=$(echo "$BODY" | jq -r '.fields.issuetype.name // "N/A"')
-            SUMMARY=$(echo "$BODY" | jq -r '.fields.summary // "N/A"')
-            STATUS=$(echo "$BODY" | jq -r '.fields.status.name // "N/A"')
-            DESCRIPTION=$(echo "$BODY" | jq -r '
-              [.fields.description.content[]? |
-                if .type == "paragraph" or .type == "heading" then
-                  [.content[]?.text // empty] | join("")
-                elif .type == "bulletList" or .type == "orderedList" then
-                  [.content[]?.content[]?.content[]?.text // empty] | map("- " + .) | join("\n")
-                else empty end
-              ] | join("\n")' 2>/dev/null || echo "No description")
-            DESCRIPTION=$(echo "$DESCRIPTION" | head -30)
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              ISSUE_TYPE=$(echo "$BODY" | jq -r '.fields.issuetype.name // "N/A"')
+              SUMMARY=$(echo "$BODY" | jq -r '.fields.summary // "N/A"')
+              STATUS=$(echo "$BODY" | jq -r '.fields.status.name // "N/A"')
+              ASSIGNEE=$(echo "$BODY" | jq -r '.fields.assignee.displayName // "Unassigned"')
+              DESCRIPTION=$(echo "$BODY" | jq -r '
+                [.fields.description.content[]? |
+                  if .type == "paragraph" or .type == "heading" then
+                    [.content[]?.text // empty] | join("")
+                  elif .type == "bulletList" or .type == "orderedList" then
+                    [.content[]?.content[]?.content[]?.text // empty] | map("- " + .) | join("\n")
+                  else empty end
+                ] | join("\n")' 2>/dev/null || echo "No description")
+              DESCRIPTION=$(echo "$DESCRIPTION" | head -20)
+
+              TASK_TABLE="${TASK_TABLE}| [${JIRA_ID}](https://${CLEAN_URL}/browse/${JIRA_ID}) | ${SUMMARY} | ${STATUS} |\n"
+
+              if [ -n "$DESCRIPTION" ] && [ "$DESCRIPTION" != "No description" ]; then
+                ALL_DESCRIPTIONS="${ALL_DESCRIPTIONS}### ${JIRA_ID}: ${SUMMARY}\n${DESCRIPTION}\n\n"
+              fi
+
+              if [ -z "$FIRST_ISSUE_TYPE" ]; then
+                FIRST_ISSUE_TYPE="$ISSUE_TYPE"
+                FIRST_SUMMARY="$SUMMARY"
+              fi
+
+              if [ "$ASSIGNEE" != "Unassigned" ]; then
+                ALL_ASSIGNEES="${ALL_ASSIGNEES}${ASSIGNEE}\n"
+              fi
+
+              FETCH_COUNT=$((FETCH_COUNT + 1))
+              echo "Fetched $JIRA_ID: $SUMMARY ($STATUS)"
+            else
+              echo "Jira API returned HTTP $HTTP_CODE for $JIRA_ID"
+              TASK_TABLE="${TASK_TABLE}| ${JIRA_ID} | _(fetch failed)_ | - |\n"
+            fi
+          done
+
+          if [ "$FETCH_COUNT" -gt 0 ]; then
+            # Deduplicate assignees
+            UNIQUE_ASSIGNEES=$(echo -e "$ALL_ASSIGNEES" | sed '/^$/d' | sort -u | paste -sd ',' - | sed 's/,/, /g')
 
             echo "fetched=true" >> "$GITHUB_OUTPUT"
-            echo "issue_type=$ISSUE_TYPE" >> "$GITHUB_OUTPUT"
-            echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
-            echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-            echo "description<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$DESCRIPTION" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "issue_type=$FIRST_ISSUE_TYPE" >> "$GITHUB_OUTPUT"
+            echo "summary=$FIRST_SUMMARY" >> "$GITHUB_OUTPUT"
+            echo "assignee=${UNIQUE_ASSIGNEES:-Unassigned}" >> "$GITHUB_OUTPUT"
+            echo "fetch_count=$FETCH_COUNT" >> "$GITHUB_OUTPUT"
+
+            DELIM="TABLE_$(date +%s%N)"
+            echo "task_table<<${DELIM}" >> "$GITHUB_OUTPUT"
+            echo -e "$TASK_TABLE" >> "$GITHUB_OUTPUT"
+            echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+            DELIM="DESC_$(date +%s%N)"
+            echo "descriptions<<${DELIM}" >> "$GITHUB_OUTPUT"
+            echo -e "$ALL_DESCRIPTIONS" >> "$GITHUB_OUTPUT"
+            echo "${DELIM}" >> "$GITHUB_OUTPUT"
           else
-            echo "Jira API returned HTTP $HTTP_CODE"
             echo "fetched=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -164,10 +213,12 @@ jobs:
         uses: actions/github-script@v7
         env:
           JIRA_ID: ${{ steps.jira_id.outputs.jira_id }}
+          ALL_IDS: ${{ steps.jira_id.outputs.all_ids }}
           JIRA_ISSUE_TYPE: ${{ steps.jira_data.outputs.issue_type }}
           JIRA_SUMMARY: ${{ steps.jira_data.outputs.summary }}
-          JIRA_STATUS: ${{ steps.jira_data.outputs.status }}
-          JIRA_DESCRIPTION: ${{ steps.jira_data.outputs.description }}
+          JIRA_TASK_TABLE: ${{ steps.jira_data.outputs.task_table }}
+          JIRA_DESCRIPTIONS: ${{ steps.jira_data.outputs.descriptions }}
+          JIRA_ASSIGNEE: ${{ steps.jira_data.outputs.assignee }}
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
         with:
           script: |
@@ -181,11 +232,11 @@ jobs:
             }
 
             const jiraId = process.env.JIRA_ID;
+            const allIds = process.env.ALL_IDS || jiraId;
             const issueType = process.env.JIRA_ISSUE_TYPE;
             const summary = process.env.JIRA_SUMMARY;
-            const description = process.env.JIRA_DESCRIPTION;
-            const jiraBaseUrl = (process.env.JIRA_BASE_URL || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
-            const jiraUrl = `https://${jiraBaseUrl}/browse/${jiraId}`;
+            const taskTable = process.env.JIRA_TASK_TABLE || '';
+            const descriptions = process.env.JIRA_DESCRIPTIONS || '';
 
             // Auto-check Work Type based on Jira issue type
             const type = (issueType || '').toLowerCase();
@@ -199,19 +250,68 @@ jobs:
               body = body.replace('- [ ] Critical Fix', '- [x] Critical Fix');
             }
 
-            // Replace Jira Task ID placeholder
-            body = body.replace('PROJ-0000', `[${jiraId}](${jiraUrl})`);
+            // Replace Jira Tasks table placeholder with fetched task table
+            if (taskTable) {
+              body = body.replace(
+                '| PROJ-0000 | - | - |',
+                taskTable.trim()
+              );
+            }
 
-            // Replace Summary placeholder with Jira summary
+            // Replace Summary placeholder with first Jira summary
             body = body.replace(
               'Describe what was changed and why',
               summary || 'Describe what was changed and why'
             );
 
-            // Replace Acceptance Criteria placeholder with Jira link
+            // Replace Acceptance Criteria placeholder with all task descriptions
+            if (descriptions) {
+              body = body.replace(
+                'Paste or link the acceptance criteria from Jira',
+                descriptions.trim()
+              );
+            }
+
+            // Build contributors list from commit authors + Jira assignee
+            const contributors = new Set();
+
+            // Add Jira assignee
+            const assignee = process.env.JIRA_ASSIGNEE || '';
+            if (assignee && assignee !== 'Unassigned') {
+              contributors.add(assignee);
+            }
+
+            // Fetch commit authors from PR
+            try {
+              const commits = await github.rest.pulls.listCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                per_page: 100
+              });
+              for (const commit of commits.data) {
+                const name = commit.commit.author?.name;
+                if (name && !name.includes('[bot]')) {
+                  contributors.add(name);
+                }
+              }
+            } catch (e) {
+              console.log(`Could not fetch commits: ${e.message}`);
+            }
+
+            // Replace Contributors placeholder
+            if (contributors.size > 0) {
+              body = body.replace(
+                'Auto-detected from commits',
+                [...contributors].join(', ')
+              );
+            }
+
+            // Replace PR Created By with GitHub PR author
+            const prAuthor = context.payload.pull_request.user.login;
             body = body.replace(
-              'Paste or link the acceptance criteria from Jira',
-              `See Jira task: [${jiraId}](${jiraUrl})\n\n${description || ''}`
+              'Auto-detected from PR',
+              `@${prAuthor}`
             );
 
             // Update the PR body
@@ -280,23 +380,24 @@ jobs:
       - name: Add Jira Context as PR Comment
         if: steps.jira_data.outputs.fetched == 'true'
         uses: actions/github-script@v7
+        env:
+          JIRA_TASK_TABLE: ${{ steps.jira_data.outputs.task_table }}
+          JIRA_DESCRIPTIONS: ${{ steps.jira_data.outputs.descriptions }}
+          ALL_IDS: ${{ steps.jira_id.outputs.all_ids }}
+          FETCH_COUNT: ${{ steps.jira_data.outputs.fetch_count }}
         with:
           script: |
-            const jiraId = '${{ steps.jira_id.outputs.jira_id }}';
-            const issueType = '${{ steps.jira_data.outputs.issue_type }}';
-            const summary = '${{ steps.jira_data.outputs.summary }}';
-            const status = '${{ steps.jira_data.outputs.status }}';
-            const description = `${{ steps.jira_data.outputs.description }}`;
-            const jiraUrl = `https://${{ secrets.JIRA_BASE_URL }}/browse/${jiraId}`;
+            const taskTable = process.env.JIRA_TASK_TABLE || '';
+            const descriptions = process.env.JIRA_DESCRIPTIONS || '';
+            const allIds = process.env.ALL_IDS || '';
+            const fetchCount = process.env.FETCH_COUNT || '0';
 
             const body = `## Jira Task Context\n\n` +
-              `| Field | Value |\n` +
-              `|-------|-------|\n` +
-              `| **Task** | [${jiraId}](${jiraUrl}) |\n` +
-              `| **Type** | ${issueType} |\n` +
-              `| **Summary** | ${summary} |\n` +
-              `| **Status** | ${status} |\n\n` +
-              `### Description\n${description}\n\n` +
+              `**${fetchCount} task(s) linked:** ${allIds}\n\n` +
+              `| Task ID | Summary | Status |\n` +
+              `|---------|---------|--------|\n` +
+              `${taskTable.trim()}\n\n` +
+              (descriptions ? `### Acceptance Criteria\n${descriptions.trim()}\n\n` : '') +
               `---\n*Auto-generated by PR Validation workflow*`;
 
             // Check if a Jira context comment already exists, update it instead of creating duplicates

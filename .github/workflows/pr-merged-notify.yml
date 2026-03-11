@@ -30,6 +30,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           IS_RELEASE="false"
 
@@ -54,7 +55,7 @@ jobs:
             JIRA_IDS=$(echo "$PR_BODY" | grep -oE '[A-Z]+-[0-9]+' | sort -u | paste -sd ',' -)
             JIRA_ID="${JIRA_IDS:-N/A}"
 
-            RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/^### /,/^---/{/^### /d;/^---/d;p;}' | sed 's/\[#[0-9]*\]([^)]*)//g' | sed 's/\[[a-f0-9]*\]([^)]*)//g' | sed 's/()//g' | sed 's/  */ /g' | sed 's/^ *//;/^$/d' | head -20)
+            RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/^### /,/^---/{/^### /d;/^---/d;p;}' | sed 's/\[#[0-9]*\]([^)]*)//g' | sed 's/\[[a-f0-9]*\]([^)]*)//g' | sed 's/()//g' | sed 's/  */ /g' | sed 's/^ *//;/^$/d' | sed 's/^\* \*\*[^*]*\*\*: /- /' | sed 's/[A-Z]\{2,\}-[0-9]\+ //g' | head -20)
             if [ -z "$RELEASE_NOTES" ]; then
               RELEASE_NOTES="No release notes provided."
             fi
@@ -72,8 +73,13 @@ jobs:
             elif echo "$PR_BODY" | grep -q '\- \[x\] Critical Fix'; then WORK_TYPE="Critical Fix";
             fi
 
-            JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
-            JIRA_ID="${JIRA_ID:-N/A}"
+            # Extract all Jira IDs from title + commit messages
+            TITLE_IDS=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' || true)
+            COMMIT_IDS=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --json commits --jq '.commits[].messageHeadline' 2>/dev/null \
+              | grep -oE '[A-Z]+-[0-9]+' || true)
+            ALL_IDS=$(echo -e "${TITLE_IDS}\n${COMMIT_IDS}" | sed '/^$/d' | sort -u | paste -sd ',' -)
+            JIRA_ID="${ALL_IDS:-N/A}"
 
             RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/## Release Notes/,/## /{ /## Release Notes/d; /## /d; p; }' | sed '/^$/d' | head -20)
             if [ -z "$RELEASE_NOTES" ] || echo "$RELEASE_NOTES" | grep -q 'Write a customer-readable description'; then
@@ -91,6 +97,17 @@ jobs:
             fi
           fi
 
+          # Extract Contributors and PR Created By from PR body
+          CONTRIBUTORS=$(echo "$PR_BODY" | sed -n '/## Contributors/,/## /{ /## Contributors/d; /## /d; /^<!--/d; /^$/d; p; }' | head -1)
+          if [ -z "$CONTRIBUTORS" ] || echo "$CONTRIBUTORS" | grep -q 'Auto-detected from commits'; then
+            CONTRIBUTORS=""
+          fi
+
+          PR_CREATED_BY=$(echo "$PR_BODY" | sed -n '/## PR Created By/,/## /{ /## PR Created By/d; /## /d; /^<!--/d; /^$/d; p; }' | head -1)
+          if [ -z "$PR_CREATED_BY" ] || echo "$PR_CREATED_BY" | grep -q 'Auto-detected from PR'; then
+            PR_CREATED_BY=""
+          fi
+
           echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
           echo "work_type=$WORK_TYPE" >> "$GITHUB_OUTPUT"
           echo "jira_id=$JIRA_ID" >> "$GITHUB_OUTPUT"
@@ -98,6 +115,8 @@ jobs:
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
+          echo "contributors=${CONTRIBUTORS}" >> "$GITHUB_OUTPUT"
+          echo "pr_created_by=${PR_CREATED_BY:-${{ github.event.pull_request.user.login }}}" >> "$GITHUB_OUTPUT"
 
           DELIM="META_DESC_$(date +%s%N)"
           echo "description<<${DELIM}" >> "$GITHUB_OUTPUT"
@@ -345,6 +364,8 @@ jobs:
           BREAKING: ${{ steps.metadata.outputs.breaking }}
           RISK: ${{ steps.final.outputs.risk }}
           IS_RELEASE: ${{ steps.metadata.outputs.is_release }}
+          CONTRIBUTORS: ${{ steps.metadata.outputs.contributors }}
+          PR_CREATED_BY: ${{ steps.metadata.outputs.pr_created_by }}
         run: |
           if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
             echo "Warning: Notion secrets not configured, skipping Notion update"
@@ -356,6 +377,15 @@ jobs:
           # Build Features multi-select and Bug Fixes text based on work type
           FEATURES_JSON="[]"
           BUGFIXES_TEXT=""
+
+          # Normalize work type to match expected values
+          LOWER_TYPE=$(echo "$WORK_TYPE" | tr '[:upper:]' '[:lower:]')
+          case "$LOWER_TYPE" in
+            *bug*) WORK_TYPE="Bug Fix" ;;
+            *feature*|*story*) WORK_TYPE="Feature" ;;
+            *change*|*enhancement*|*improvement*) WORK_TYPE="Change Request" ;;
+            *critical*|*hotfix*) WORK_TYPE="Critical Fix" ;;
+          esac
 
           if [ "$IS_RELEASE" = "true" ]; then
             FEATURES_TEXT=$(echo "$CUSTOMER_NOTES" | grep -i 'feature\|new\|add\|enhancement' | head -3 | tr '\n' '; ' || true)
@@ -409,6 +439,15 @@ jobs:
               },
               "Bug Fixes": {
                 "rich_text": [{ "type": "text", "text": { "content": "${BUGFIXES_TEXT}" } }]
+              },
+              "Contributors": {
+                "rich_text": [{ "type": "text", "text": { "content": "${CONTRIBUTORS:-N/A}" } }]
+              },
+              "PR Created By": {
+                "rich_text": [{ "type": "text", "text": { "content": "${PR_CREATED_BY:-N/A}" } }]
+              },
+              "Task ID": {
+                "rich_text": [{ "type": "text", "text": { "content": "${JIRA_ID}" } }]
               }
             },
             "children": [
