@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.7.0...poc-ai-release-pipeline-v1.8.0) (2026-03-11)
+
+
+### New Features
+
+* TRAIN-1369, TRAIN-1368 ([#34](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/34)) ([0f51da8](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/0f51da86b7028aae245b888bcc2ceb7e27833dff))
+
+
+### Maintenance
+
+* **utils:** TRAIN-1369 Update remove-duplicates JSDoc param description ([#32](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/32)) ([4772207](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/47722072d6334577dd0c8d9181e4955a45f8445e))
+
 ## [1.7.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.6.1...poc-ai-release-pipeline-v1.7.0) (2026-03-11)
 
 
