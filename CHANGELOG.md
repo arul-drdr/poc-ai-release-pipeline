@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.6.1...poc-ai-release-pipeline-v1.7.0) (2026-03-11)
+
+
+### New Features
+
+* **ci:** TRAIN-1369 Add AC compliance validation and multi-Jira support ([#30](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/30)) ([6f6b38c](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/6f6b38ca14f150ab14159e397cacab64a8e6538e))
+
 ## [1.6.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.6.0...poc-ai-release-pipeline-v1.6.1) (2026-03-11)
 
 
