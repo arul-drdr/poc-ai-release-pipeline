@@ -403,6 +403,9 @@ jobs:
 
           RELEASE_DATE=$(echo "$MERGED_AT" | cut -dT -f1)
 
+          # Build Contributors multi_select JSON array from comma-separated names
+          CONTRIBUTORS_JSON=$(echo "${CONTRIBUTORS:-N/A}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | sed '/^$/d' | jq -R '{ name: . }' | jq -s '.')
+
           PAYLOAD=$(jq -n \
             --arg db_id "$NOTION_DATABASE_ID" \
             --arg title "$NOTION_TITLE" \
@@ -412,9 +415,8 @@ jobs:
             --arg summary "$TRUNCATED_NOTES" \
             --argjson features "$FEATURES_JSON" \
             --arg bugfixes "$BUGFIXES_TEXT" \
-            --arg contributors "${CONTRIBUTORS:-N/A}" \
+            --argjson contributors "$CONTRIBUTORS_JSON" \
             --arg pr_created_by "${PR_CREATED_BY:-N/A}" \
-            --arg task_id "$JIRA_ID" \
             --arg pr_url "$PR_URL" \
             '{
               parent: { database_id: $db_id },
@@ -427,9 +429,8 @@ jobs:
                 "Summary": { rich_text: [{ type: "text", text: { content: $summary } }] },
                 "Features": { multi_select: $features },
                 "Bug Fixes": { rich_text: [{ type: "text", text: { content: $bugfixes } }] },
-                "Contributors": { rich_text: [{ type: "text", text: { content: $contributors } }] },
-                "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] },
-                "Task ID": { rich_text: [{ type: "text", text: { content: $task_id } }] }
+                "Contributors": { multi_select: $contributors },
+                "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] }
               },
               children: [
                 {
