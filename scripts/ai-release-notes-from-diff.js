@@ -36,6 +36,7 @@ Rules:
 - Categorize into: New Features, Improvements, or Bug Fixes (only include relevant categories)
 - Keep it concise: 2-5 bullet points maximum
 - If the change is purely internal (CI/CD, refactoring, tests), write: "Internal improvements to system reliability and performance."
+- NEVER include code snippets, file paths, secrets, credentials, or patient identifiers in the output
 - Output clean markdown without code blocks
 
 Example output:
@@ -44,6 +45,20 @@ Example output:
 
 ### Bug Fixes
 - Fixed an issue where session tokens were not refreshing correctly, preventing intermittent login failures`;
+
+/**
+ * Redact sensitive data from diff content before sending to external API.
+ */
+function redactSensitiveData(text) {
+  return text
+    .replace(/(api[_-]?key|token|secret|password|passwd|pwd|authorization|bearer)\s*[:=]\s*["']?[A-Za-z0-9\-_.~+/]{8,}["']?/gi, "$1=***REDACTED***")
+    .replace(/(Server|Data Source|Initial Catalog|User ID|Password|Integrated Security)[^;\n]{0,100}/gi, "$1=***REDACTED***")
+    .replace(/AKIA[0-9A-Z]{16}/g, "***REDACTED_AWS_KEY***")
+    .replace(/-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (RSA |EC |DSA )?PRIVATE KEY-----/g, "***REDACTED_PRIVATE_KEY***")
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "***REDACTED_SSN***")
+    .replace(/^([+-].*?)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gm, "$1***REDACTED_EMAIL***")
+    .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "***REDACTED_JWT***");
+}
 
 async function readStdin() {
   return new Promise((resolve, reject) => {
@@ -64,10 +79,11 @@ async function generateNotesFromDiff(diff, title, body) {
     throw new Error("NVIDIA_API_KEY environment variable is not set.");
   }
 
+  const cleanDiff = redactSensitiveData(diff);
   const truncatedDiff =
-    diff.length > MAX_DIFF_CHARS
-      ? diff.substring(0, MAX_DIFF_CHARS) + "\n\n... [diff truncated] ..."
-      : diff;
+    cleanDiff.length > MAX_DIFF_CHARS
+      ? cleanDiff.substring(0, MAX_DIFF_CHARS) + "\n\n... [diff truncated] ..."
+      : cleanDiff;
 
   const userMessage = `PR Title: ${title || "Untitled"}
 

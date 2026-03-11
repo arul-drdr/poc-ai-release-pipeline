@@ -95,14 +95,19 @@ jobs:
           echo "work_type=$WORK_TYPE" >> "$GITHUB_OUTPUT"
           echo "jira_id=$JIRA_ID" >> "$GITHUB_OUTPUT"
           echo "scope=${SCOPE:-general}" >> "$GITHUB_OUTPUT"
-          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
 
-          echo "release_notes<<EOF" >> "$GITHUB_OUTPUT"
+          DELIM="META_DESC_$(date +%s%N)"
+          echo "description<<${DELIM}" >> "$GITHUB_OUTPUT"
+          echo "$DESCRIPTION" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+          DELIM="META_NOTES_$(date +%s%N)"
+          echo "release_notes<<${DELIM}" >> "$GITHUB_OUTPUT"
           echo "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
 
       - name: AI Categorize PR
         id: ai_categorize
@@ -129,11 +134,12 @@ jobs:
           fi
 
           AI_JSON=$(echo "$DIFF" | node scripts/ai-categorize-pr.js)
-          echo "AI categorization result: $AI_JSON"
+          echo "AI categorization completed successfully"
 
-          echo "ai_result<<EOF" >> "$GITHUB_OUTPUT"
+          DELIM="AICAT_$(date +%s%N)"
+          echo "ai_result<<${DELIM}" >> "$GITHUB_OUTPUT"
           echo "$AI_JSON" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
 
       - name: AI Generate Release Notes from Diff
         id: ai_notes
@@ -161,9 +167,10 @@ jobs:
 
           AI_NOTES=$(echo "$DIFF" | node scripts/ai-release-notes-from-diff.js)
 
-          echo "ai_notes<<EOF" >> "$GITHUB_OUTPUT"
+          DELIM="AINOTES_$(date +%s%N)"
+          echo "ai_notes<<${DELIM}" >> "$GITHUB_OUTPUT"
           echo "$AI_NOTES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
 
       - name: Merge AI + shell metadata
         id: final
@@ -186,23 +193,26 @@ jobs:
 
           # Override with AI results if available (non-release PRs only)
           if [ "$IS_RELEASE" != "true" ] && [ -n "$AI_RESULT" ]; then
-            # Parse AI JSON using node for reliability
+            # Parse AI JSON using node + jq for reliability
             AI_PARSED=$(node -e "
               try {
                 const r = JSON.parse(process.env.AI_RESULT);
-                console.log(r.work_type || '');
-                console.log(r.scope || '');
-                console.log(r.risk || '');
-                console.log(r.summary || '');
-                console.log((r.flags || []).join(', '));
-              } catch(e) { console.log(''); console.log(''); console.log(''); console.log(''); console.log(''); }
+                const out = {
+                  work_type: r.work_type || '',
+                  scope: r.scope || '',
+                  risk: r.risk || '',
+                  summary: (r.summary || '').replace(/\n/g, ' '),
+                  flags: Array.isArray(r.flags) ? r.flags.join(', ') : (r.flags || '')
+                };
+                console.log(JSON.stringify(out));
+              } catch(e) { console.log('{}'); }
             ")
 
-            AI_WORK_TYPE=$(echo "$AI_PARSED" | sed -n '1p')
-            AI_SCOPE=$(echo "$AI_PARSED" | sed -n '2p')
-            AI_RISK=$(echo "$AI_PARSED" | sed -n '3p')
-            AI_SUMMARY=$(echo "$AI_PARSED" | sed -n '4p')
-            AI_FLAGS=$(echo "$AI_PARSED" | sed -n '5p')
+            AI_WORK_TYPE=$(echo "$AI_PARSED" | jq -r '.work_type // empty')
+            AI_SCOPE=$(echo "$AI_PARSED" | jq -r '.scope // empty')
+            AI_RISK=$(echo "$AI_PARSED" | jq -r '.risk // empty')
+            AI_SUMMARY=$(echo "$AI_PARSED" | jq -r '.summary // empty')
+            AI_FLAGS=$(echo "$AI_PARSED" | jq -r '.flags // empty')
 
             if [ -n "$AI_WORK_TYPE" ]; then
               WORK_TYPE="$AI_WORK_TYPE"
@@ -228,15 +238,21 @@ jobs:
             echo "Using AI-generated release notes"
           fi
 
-          echo "work_type=$WORK_TYPE" >> "$GITHUB_OUTPUT"
-          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
-          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
-          echo "risk=$RISK" >> "$GITHUB_OUTPUT"
-          echo "flags=$AI_FLAGS" >> "$GITHUB_OUTPUT"
+          # Sanitize single-line outputs (replace newlines with spaces)
+          echo "work_type=$(echo "$WORK_TYPE" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          echo "scope=$(echo "$SCOPE" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          echo "risk=$(echo "$RISK" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          echo "flags=$(echo "$AI_FLAGS" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
 
-          echo "customer_notes<<EOF" >> "$GITHUB_OUTPUT"
+          DELIM="DESC_$(date +%s%N)"
+          echo "description<<${DELIM}" >> "$GITHUB_OUTPUT"
+          echo "$DESCRIPTION" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+          DELIM="NOTES_$(date +%s%N)"
+          echo "customer_notes<<${DELIM}" >> "$GITHUB_OUTPUT"
           echo "$CUSTOMER_NOTES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
 
       - name: Extract version
         id: version

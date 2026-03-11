@@ -78,7 +78,30 @@ List each finding with severity, file, and recommendation.
 APPROVE / REQUEST_CHANGES / COMMENT
 
 If there are no issues, say the code looks good and approve.
-Keep the review concise — focus on real issues, not style nitpicks.`;
+Keep the review concise — focus on real issues, not style nitpicks.
+IMPORTANT: Never reproduce raw secrets, credentials, PII, or connection strings in your review output. Reference the issue without quoting the sensitive value.`;
+
+/**
+ * Redact sensitive data from diff content before sending to external API.
+ * Strips API keys, connection strings, passwords, tokens, and common PII patterns.
+ */
+function redactSensitiveData(text) {
+  return text
+    // API keys and tokens (generic key=value patterns)
+    .replace(/(api[_-]?key|token|secret|password|passwd|pwd|authorization|bearer)\s*[:=]\s*["']?[A-Za-z0-9\-_.~+/]{8,}["']?/gi, "$1=***REDACTED***")
+    // Connection strings
+    .replace(/(Server|Data Source|Initial Catalog|User ID|Password|Integrated Security)[^;\n]{0,100}/gi, "$1=***REDACTED***")
+    // AWS-style keys
+    .replace(/AKIA[0-9A-Z]{16}/g, "***REDACTED_AWS_KEY***")
+    // Private keys
+    .replace(/-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (RSA |EC |DSA )?PRIVATE KEY-----/g, "***REDACTED_PRIVATE_KEY***")
+    // SSN patterns (XXX-XX-XXXX)
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "***REDACTED_SSN***")
+    // Email addresses in added/removed lines
+    .replace(/^([+-].*?)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gm, "$1***REDACTED_EMAIL***")
+    // JWT tokens
+    .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "***REDACTED_JWT***");
+}
 
 async function readStdin() {
   return new Promise((resolve, reject) => {
@@ -99,12 +122,13 @@ async function reviewWithAI(diff, title, body) {
     throw new Error("NVIDIA_API_KEY environment variable is not set.");
   }
 
-  // Truncate diff if too large
+  // Redact sensitive data and truncate diff
+  const cleanDiff = redactSensitiveData(diff);
   const truncatedDiff =
-    diff.length > MAX_DIFF_CHARS
-      ? diff.substring(0, MAX_DIFF_CHARS) +
+    cleanDiff.length > MAX_DIFF_CHARS
+      ? cleanDiff.substring(0, MAX_DIFF_CHARS) +
         "\n\n... [diff truncated for AI review] ..."
-      : diff;
+      : cleanDiff;
 
   const userMessage = `## PR: ${title || "Untitled"}
 
