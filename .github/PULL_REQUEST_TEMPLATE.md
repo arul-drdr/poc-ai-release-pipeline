@@ -26,10 +26,6 @@
 |---------|---------|--------|
 | PROJ-0000 | - | - |
 
-## Summary of Changes
-
-Describe what was changed and why
-
 ## Acceptance Criteria
 
 <!-- Auto-filled from Jira task descriptions. Lists AC for each task when multiple tasks are linked. -->

@@ -406,6 +406,9 @@ jobs:
           # Build Contributors multi_select JSON array from comma-separated names
           CONTRIBUTORS_JSON=$(echo "${CONTRIBUTORS:-N/A}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | sed '/^$/d' | jq -R '{ name: . }' | jq -s '.')
 
+          # Build Task Id multi_select JSON array from comma-separated Jira IDs
+          TASK_ID_JSON=$(echo "${JIRA_ID:-N/A}" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | sed '/^$/d' | jq -R '{ name: . }' | jq -s '.')
+
           jq -n \
             --arg db_id "$NOTION_DATABASE_ID" \
             --arg title "$NOTION_TITLE" \
@@ -417,7 +420,7 @@ jobs:
             --arg bugfixes "$BUGFIXES_TEXT" \
             --argjson contributors "$CONTRIBUTORS_JSON" \
             --arg pr_created_by "${PR_CREATED_BY:-N/A}" \
-            --arg task_id "$JIRA_ID" \
+            --argjson task_ids "$TASK_ID_JSON" \
             --arg pr_url "$PR_URL" \
             '{
               parent: { database_id: $db_id },
@@ -432,7 +435,7 @@ jobs:
                 "Bug Fixes": { rich_text: [{ type: "text", text: { content: $bugfixes } }] },
                 "Contributors": { multi_select: $contributors },
                 "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] },
-                "Task Id": { rich_text: [{ type: "text", text: { content: $task_id } }] }
+                "Task Id": { multi_select: $task_ids }
               },
               children: [
                 {
