@@ -20,9 +20,10 @@
 
 const NVIDIA_API_URL =
   "https://integrate.api.nvidia.com/v1/chat/completions";
-const MODEL = "qwen/qwen3-coder-480b-a35b-instruct";
+const MODEL = "meta/llama-3.3-70b-instruct";
 const MAX_TOKENS = 4000;
-const MAX_DIFF_CHARS = 30000;
+const MAX_DIFF_CHARS = 15000;
+const TIMEOUT_MS = 120000; // 2 minute timeout
 
 const SYSTEM_PROMPT = `You are a senior code reviewer for a healthcare software product (.NET Core/C#).
 Review the PR diff and provide actionable feedback.
@@ -115,6 +116,9 @@ ${body || "No description provided."}
 ${truncatedDiff}
 \`\`\``;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   const response = await fetch(NVIDIA_API_URL, {
     method: "POST",
     headers: {
@@ -130,7 +134,10 @@ ${truncatedDiff}
         { role: "user", content: userMessage },
       ],
     }),
+    signal: controller.signal,
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const errorBody = await response.text();

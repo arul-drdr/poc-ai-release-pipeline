@@ -22,7 +22,8 @@ const NVIDIA_API_URL =
   "https://integrate.api.nvidia.com/v1/chat/completions";
 const MODEL = "meta/llama-3.3-70b-instruct";
 const MAX_TOKENS = 2000;
-const MAX_DIFF_CHARS = 25000;
+const MAX_DIFF_CHARS = 15000;
+const TIMEOUT_MS = 60000; // 1 minute timeout
 
 const SYSTEM_PROMPT = `You are a technical writer for a healthcare software product.
 Your job is to read a code diff and write customer-facing release notes.
@@ -78,6 +79,9 @@ ${truncatedDiff}
 
 Write customer-facing release notes based on the actual code changes above.`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   const response = await fetch(NVIDIA_API_URL, {
     method: "POST",
     headers: {
@@ -93,7 +97,10 @@ Write customer-facing release notes based on the actual code changes above.`;
         { role: "user", content: userMessage },
       ],
     }),
+    signal: controller.signal,
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const errorBody = await response.text();
