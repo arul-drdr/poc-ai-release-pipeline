@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.6.0...poc-ai-release-pipeline-v1.6.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1366 Improve AI release notes prompt to avoid false "internal" classification ([#27](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/27)) ([bdddc74](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/bdddc74804ae801d7a30e0a88498505bd5df190f))
+
 ## [1.6.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.5.0...poc-ai-release-pipeline-v1.6.0) (2026-03-11)
 
 
