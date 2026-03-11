@@ -35,9 +35,17 @@ Rules:
 - Use professional, clear language for healthcare stakeholders
 - Categorize into: New Features, Improvements, or Bug Fixes (only include relevant categories)
 - Keep it concise: 2-5 bullet points maximum
-- If the change is purely internal (CI/CD, refactoring, tests), write: "Internal improvements to system reliability and performance."
 - NEVER include code snippets, file paths, secrets, credentials, or patient identifiers in the output
 - Output clean markdown without code blocks
+
+Classifying changes:
+- Use the PR title prefix to determine the change type:
+  - "feat" = New Feature (always describe what was added)
+  - "fix" = Bug Fix (always describe what was fixed)
+  - "perf" = Improvement (always describe the optimization)
+  - "critical" = Critical Fix (always describe the security/data fix)
+- ONLY use "Internal improvements to system reliability and performance." when the PR title starts with "chore", "ci", "build", "docs", or "refactor" AND the diff contains NO new business logic, functions, or endpoints
+- When in doubt, describe the change — never default to "Internal improvements" for feat/fix PRs
 
 Example output:
 ### New Features
