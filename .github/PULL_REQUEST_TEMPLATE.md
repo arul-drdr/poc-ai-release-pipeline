@@ -18,20 +18,21 @@
 - [ ] Change Request
 - [ ] Critical Fix
 
-## Jira Task ID
+## Jira Tasks
 
-PROJ-0000
+<!-- Auto-filled from PR title + commit messages. Fetches summary, status, and AC from Jira API. -->
+
+| Task ID | Summary | Status |
+|---------|---------|--------|
+| PROJ-0000 | - | - |
 
 ## Summary of Changes
 
 Describe what was changed and why
 
-## Release Notes
-
-Write a customer-readable description of this change
-
 ## Acceptance Criteria
 
+<!-- Auto-filled from Jira task descriptions. Lists AC for each task when multiple tasks are linked. -->
 Paste or link the acceptance criteria from Jira
 
 ## Testing Done
@@ -44,3 +45,17 @@ Describe tests run
 - [ ] No PII (patient names, DOB, SSN, etc.) in log statements
 - [ ] Documentation updated if needed
 - [ ] Unit tests added or updated
+
+## Release Notes
+
+Write a customer-readable description of this change
+
+## Contributors
+
+<!-- Auto-filled from git commit authors + Jira assignee. Add manually if needed. -->
+Auto-detected from commits
+
+## PR Created By
+
+<!-- Auto-filled from GitHub PR author -->
+Auto-detected from PR

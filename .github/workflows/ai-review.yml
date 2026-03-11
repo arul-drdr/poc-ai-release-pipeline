@@ -123,6 +123,164 @@ jobs:
               console.log('Release notes already filled, skipping update');
             }
 
+      - name: Extract Jira IDs from PR title and commits
+        id: jira_id
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Collect Jira IDs from PR title
+          TITLE_IDS=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' || true)
+
+          # Collect Jira IDs from commit messages
+          COMMIT_IDS=$(gh pr view ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --json commits --jq '.commits[].messageHeadline' 2>/dev/null \
+            | grep -oE '[A-Z]+-[0-9]+' || true)
+
+          # Combine and deduplicate
+          ALL_IDS=$(echo -e "${TITLE_IDS}\n${COMMIT_IDS}" | sed '/^$/d' | awk '!seen[$0]++')
+          FIRST_ID=$(echo "$ALL_IDS" | head -1)
+          ID_CSV=$(echo "$ALL_IDS" | paste -sd ',' -)
+
+          if [ -n "$FIRST_ID" ]; then
+            echo "all_ids=$ID_CSV" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Found Jira IDs: $ID_CSV"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Jira ID found"
+          fi
+
+      - name: Fetch Acceptance Criteria
+        id: jira_ac
+        if: steps.jira_id.outputs.found == 'true'
+        continue-on-error: true
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          ALL_IDS: ${{ steps.jira_id.outputs.all_ids }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          AC_TEXT=""
+
+          # Try Jira API first — fetch AC for all task IDs
+          if [ -n "$JIRA_BASE_URL" ] && [ -n "$JIRA_USER_EMAIL" ] && [ -n "$JIRA_API_TOKEN" ]; then
+            CLEAN_URL=$(echo "$JIRA_BASE_URL" | sed 's|^https\?://||' | sed 's|/$||')
+            AUTH=$(echo -n "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}" | base64 -w 0)
+
+            IFS=',' read -ra IDS <<< "$ALL_IDS"
+            for JIRA_ID in "${IDS[@]}"; do
+              echo "Fetching AC from Jira API for $JIRA_ID..."
+
+              RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 \
+                -H "Authorization: Basic ${AUTH}" \
+                -H "Content-Type: application/json" \
+                "https://${CLEAN_URL}/rest/api/3/issue/${JIRA_ID}?fields=description,summary") || continue
+
+              HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+
+              if [ "$HTTP_CODE" = "200" ]; then
+                SUMMARY=$(echo "$BODY" | jq -r '.fields.summary // "N/A"')
+                DESC=$(echo "$BODY" | jq -r '
+                  [.fields.description.content[]? |
+                    if .type == "paragraph" or .type == "heading" then
+                      [.content[]?.text // empty] | join("")
+                    elif .type == "bulletList" or .type == "orderedList" then
+                      [.content[]?.content[]?.content[]?.text // empty] | map("- " + .) | join("\n")
+                    else empty end
+                  ] | join("\n")' 2>/dev/null || echo "")
+                DESC=$(echo "$DESC" | head -20)
+
+                if [ -n "$DESC" ] && [ "$DESC" != "null" ]; then
+                  AC_TEXT="${AC_TEXT}### ${JIRA_ID}: ${SUMMARY}\n${DESC}\n\n"
+                  echo "Fetched AC for $JIRA_ID (${#DESC} chars)"
+                fi
+              else
+                echo "Jira API returned HTTP $HTTP_CODE for $JIRA_ID"
+              fi
+            done
+          else
+            echo "Jira secrets not configured, trying PR body fallback"
+          fi
+
+          # Fallback: parse AC from PR body
+          if [ -z "$AC_TEXT" ]; then
+            echo "Attempting to extract AC from PR body..."
+            AC_TEXT=$(echo "$PR_BODY" | sed -n '/## Acceptance Criteria/,/## /{ /## Acceptance Criteria/d; /## /d; /^<!--/d; p; }' | head -50)
+            if echo "$AC_TEXT" | grep -q 'Paste or link the acceptance criteria from Jira'; then
+              AC_TEXT=""
+              echo "PR body still has AC placeholder, no AC available"
+            elif [ -n "$AC_TEXT" ]; then
+              echo "Extracted AC from PR body (${#AC_TEXT} chars)"
+            fi
+          fi
+
+          if [ -n "$AC_TEXT" ] && [ "${#AC_TEXT}" -gt 10 ]; then
+            echo "has_ac=true" >> "$GITHUB_OUTPUT"
+            DELIM="AC_$(date +%s%N)"
+            echo "ac_text<<${DELIM}" >> "$GITHUB_OUTPUT"
+            echo -e "$AC_TEXT" >> "$GITHUB_OUTPUT"
+            echo "${DELIM}" >> "$GITHUB_OUTPUT"
+            echo "AC found, proceeding with validation"
+          else
+            echo "has_ac=false" >> "$GITHUB_OUTPUT"
+            echo "No AC found, skipping validation"
+          fi
+
+      - name: AI Validate Acceptance Criteria
+        id: ac_validation
+        if: steps.jira_ac.outputs.has_ac == 'true'
+        continue-on-error: true
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          JIRA_AC: ${{ steps.jira_ac.outputs.ac_text }}
+        run: |
+          if [ -z "$NVIDIA_API_KEY" ]; then
+            echo "NVIDIA_API_KEY not set, skipping AC validation"
+            exit 0
+          fi
+
+          if [ ! -s pr-diff.txt ]; then
+            echo "No diff file, skipping AC validation"
+            exit 0
+          fi
+
+          node scripts/ai-validate-ac.js < pr-diff.txt > ac-validation-output.md || true
+          echo "AC validation output size: $(wc -c < ac-validation-output.md) bytes"
+
+      - name: Post AC validation comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f ac-validation-output.md ] || [ ! -s ac-validation-output.md ]; then
+            echo "No AC validation output, skipping comment"
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+
+          EXISTING_COMMENT_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.body | contains("🎯 AC Compliance Check")) | .id' | head -1)
+
+          if [ -n "$EXISTING_COMMENT_ID" ]; then
+            gh api \
+              --method PATCH \
+              "repos/${{ github.repository }}/issues/comments/${EXISTING_COMMENT_ID}" \
+              -f body="$(cat ac-validation-output.md)"
+            echo "Updated existing AC validation comment"
+          else
+            gh pr comment "$PR_NUMBER" \
+              --repo "${{ github.repository }}" \
+              --body-file ac-validation-output.md
+            echo "Posted new AC validation comment"
+          fi
+
       - name: Post review comment
         if: success()
         env:
