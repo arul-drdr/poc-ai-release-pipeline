@@ -12,7 +12,8 @@
  *   node scripts/rewrite-release-notes.js path/to/changelog.md
  *
  * Environment:
- *   GITHUB_TOKEN - GitHub token (automatically available in GitHub Actions)
+ *   NVIDIA_API_KEY - API key from build.nvidia.com (preferred)
+ *   GITHUB_TOKEN   - GitHub token fallback (automatically available in GitHub Actions)
  *
  * Output:
  *   Writes customer-facing notes to customer-release-notes.md
@@ -21,10 +22,32 @@
 const fs = require("fs");
 const path = require("path");
 
+const NVIDIA_API_URL =
+  "https://integrate.api.nvidia.com/v1/chat/completions";
 const GITHUB_MODELS_URL =
   "https://models.github.ai/inference/chat/completions";
-const MODEL = "openai/gpt-4o";
 const MAX_TOKENS = 2000;
+
+// Use NVIDIA API if key is available, otherwise fall back to GitHub Models
+function getApiConfig() {
+  const nvidiaKey = process.env.NVIDIA_API_KEY;
+  if (nvidiaKey) {
+    return {
+      url: NVIDIA_API_URL,
+      token: nvidiaKey,
+      model: "meta/llama-3.3-70b-instruct",
+    };
+  }
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (githubToken) {
+    return {
+      url: GITHUB_MODELS_URL,
+      token: githubToken,
+      model: "openai/gpt-4o",
+    };
+  }
+  throw new Error("Neither NVIDIA_API_KEY nor GITHUB_TOKEN is set.");
+}
 
 const SYSTEM_PROMPT = `You are a technical writer for a healthcare software product.
 Rewrite these technical release notes into customer-friendly language.
@@ -60,23 +83,16 @@ async function readInput() {
 }
 
 async function rewriteWithAI(rawNotes) {
-  const token = process.env.GITHUB_TOKEN;
+  const config = getApiConfig();
 
-  if (!token) {
-    throw new Error(
-      "GITHUB_TOKEN environment variable is not set. " +
-        "This is automatically available in GitHub Actions."
-    );
-  }
-
-  const response = await fetch(GITHUB_MODELS_URL, {
+  const response = await fetch(config.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${config.token}`,
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: config.model,
       max_tokens: MAX_TOKENS,
       messages: [
         {
@@ -94,7 +110,7 @@ async function rewriteWithAI(rawNotes) {
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(
-      `GitHub Models API returned HTTP ${response.status}: ${errorBody}`
+      `AI API returned HTTP ${response.status}: ${errorBody}`
     );
   }
 
@@ -112,7 +128,8 @@ async function main() {
       process.exit(1);
     }
 
-    console.log("Sending to GitHub Models API for rewriting...");
+    const config = getApiConfig();
+    console.log(`Sending to ${config.model} for rewriting...`);
     let customerNotes;
 
     try {

@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Extract PR metadata
+      - name: Extract PR metadata (shell fallback)
         id: metadata
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -37,12 +37,10 @@ jobs:
           if echo "$PR_TITLE" | grep -q '^chore(main): release'; then
             IS_RELEASE="true"
 
-            # Extract version from title: "chore(main): release poc-ai-release-pipeline 1.4.0" -> "1.4.0"
             RELEASE_VERSION=$(echo "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
             DESCRIPTION="Release ${RELEASE_VERSION}"
             SCOPE="release"
 
-            # Determine work type from changelog sections
             HAS_FEATURES=$(echo "$PR_BODY" | grep -c '### New Features' || true)
             HAS_BUGFIXES=$(echo "$PR_BODY" | grep -c '### Bug Fixes' || true)
             if [ "$HAS_FEATURES" -gt 0 ]; then
@@ -53,54 +51,40 @@ jobs:
               WORK_TYPE="Change Request"
             fi
 
-            # Extract all Jira IDs from changelog body
             JIRA_IDS=$(echo "$PR_BODY" | grep -oE '[A-Z]+-[0-9]+' | sort -u | paste -sd ',' -)
             JIRA_ID="${JIRA_IDS:-N/A}"
 
-            # Extract changelog entries as release notes (strip markdown links, commit hashes, empty parens)
             RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/^### /,/^---/{/^### /d;/^---/d;p;}' | sed 's/\[#[0-9]*\]([^)]*)//g' | sed 's/\[[a-f0-9]*\]([^)]*)//g' | sed 's/()//g' | sed 's/  */ /g' | sed 's/^ *//;/^$/d' | head -20)
-
             if [ -z "$RELEASE_NOTES" ]; then
               RELEASE_NOTES="No release notes provided."
             fi
 
-            # Check for breaking change markers
             BREAKING="false"
             if echo "$PR_BODY" | grep -qiE '(BREAKING CHANGE|breaking change|### ⚠)'; then
               BREAKING="true"
             fi
           else
-            # Regular PR: extract from PR template fields
+            # Shell-based fallback for regular PRs (AI will override below)
             WORK_TYPE="Other"
-            if echo "$PR_BODY" | grep -q '\- \[x\] Bug'; then
-              WORK_TYPE="Bug Fix"
-            elif echo "$PR_BODY" | grep -q '\- \[x\] Feature'; then
-              WORK_TYPE="Feature"
-            elif echo "$PR_BODY" | grep -q '\- \[x\] Change Request'; then
-              WORK_TYPE="Change Request"
-            elif echo "$PR_BODY" | grep -q '\- \[x\] Critical Fix'; then
-              WORK_TYPE="Critical Fix"
+            if echo "$PR_BODY" | grep -q '\- \[x\] Bug'; then WORK_TYPE="Bug Fix";
+            elif echo "$PR_BODY" | grep -q '\- \[x\] Feature'; then WORK_TYPE="Feature";
+            elif echo "$PR_BODY" | grep -q '\- \[x\] Change Request'; then WORK_TYPE="Change Request";
+            elif echo "$PR_BODY" | grep -q '\- \[x\] Critical Fix'; then WORK_TYPE="Critical Fix";
             fi
 
-            # Extract Jira ID from title
             JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
             JIRA_ID="${JIRA_ID:-N/A}"
 
-            # Extract Release Notes section from PR body
             RELEASE_NOTES=$(echo "$PR_BODY" | sed -n '/## Release Notes/,/## /{ /## Release Notes/d; /## /d; p; }' | sed '/^$/d' | head -20)
-
             if [ -z "$RELEASE_NOTES" ] || echo "$RELEASE_NOTES" | grep -q 'Write a customer-readable description'; then
               RELEASE_NOTES="No release notes provided."
             fi
 
-            # Extract scope from PR title: type(scope): description -> scope
             SCOPE=$(echo "$PR_TITLE" | grep -oP '(?<=\().*?(?=\))' | head -1)
             SCOPE="${SCOPE:-general}"
 
-            # Clean description (remove type prefix and Jira ID)
             DESCRIPTION=$(echo "$PR_TITLE" | sed 's/^[a-z]*([^)]*): //' | sed 's/^[A-Z]*-[0-9]* //')
 
-            # Check for breaking change markers
             BREAKING="false"
             if echo "$PR_BODY" | grep -qiE '(BREAKING CHANGE|breaking change|\!\()'; then
               BREAKING="true"
@@ -120,50 +104,173 @@ jobs:
           echo "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      - name: AI Categorize PR
+        id: ai_categorize
+        if: steps.metadata.outputs.is_release != 'true'
+        continue-on-error: true
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$NVIDIA_API_KEY" ]; then
+            echo "NVIDIA_API_KEY not set, skipping AI categorization"
+            echo "ai_result=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} 2>/dev/null || echo "")
+
+          if [ -z "$DIFF" ]; then
+            echo "No diff available, skipping AI categorization"
+            echo "ai_result=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          AI_JSON=$(echo "$DIFF" | node scripts/ai-categorize-pr.js)
+          echo "AI categorization result: $AI_JSON"
+
+          echo "ai_result<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$AI_JSON" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: AI Generate Release Notes from Diff
+        id: ai_notes
+        if: steps.metadata.outputs.is_release != 'true'
+        continue-on-error: true
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$NVIDIA_API_KEY" ]; then
+            echo "NVIDIA_API_KEY not set, skipping AI release notes"
+            echo "ai_notes=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} 2>/dev/null || echo "")
+
+          if [ -z "$DIFF" ]; then
+            echo "No diff available, skipping AI release notes"
+            echo "ai_notes=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          AI_NOTES=$(echo "$DIFF" | node scripts/ai-release-notes-from-diff.js)
+
+          echo "ai_notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$AI_NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Merge AI + shell metadata
+        id: final
+        env:
+          SHELL_WORK_TYPE: ${{ steps.metadata.outputs.work_type }}
+          SHELL_SCOPE: ${{ steps.metadata.outputs.scope }}
+          SHELL_DESCRIPTION: ${{ steps.metadata.outputs.description }}
+          SHELL_NOTES: ${{ steps.metadata.outputs.release_notes }}
+          AI_RESULT: ${{ steps.ai_categorize.outputs.ai_result }}
+          AI_NOTES: ${{ steps.ai_notes.outputs.ai_notes }}
+          IS_RELEASE: ${{ steps.metadata.outputs.is_release }}
+        run: |
+          # Default to shell-extracted values
+          WORK_TYPE="$SHELL_WORK_TYPE"
+          SCOPE="$SHELL_SCOPE"
+          DESCRIPTION="$SHELL_DESCRIPTION"
+          CUSTOMER_NOTES="$SHELL_NOTES"
+          RISK="Low"
+          AI_FLAGS=""
+
+          # Override with AI results if available (non-release PRs only)
+          if [ "$IS_RELEASE" != "true" ] && [ -n "$AI_RESULT" ]; then
+            # Parse AI JSON using node for reliability
+            AI_PARSED=$(node -e "
+              try {
+                const r = JSON.parse(process.env.AI_RESULT);
+                console.log(r.work_type || '');
+                console.log(r.scope || '');
+                console.log(r.risk || '');
+                console.log(r.summary || '');
+                console.log((r.flags || []).join(', '));
+              } catch(e) { console.log(''); console.log(''); console.log(''); console.log(''); console.log(''); }
+            ")
+
+            AI_WORK_TYPE=$(echo "$AI_PARSED" | sed -n '1p')
+            AI_SCOPE=$(echo "$AI_PARSED" | sed -n '2p')
+            AI_RISK=$(echo "$AI_PARSED" | sed -n '3p')
+            AI_SUMMARY=$(echo "$AI_PARSED" | sed -n '4p')
+            AI_FLAGS=$(echo "$AI_PARSED" | sed -n '5p')
+
+            if [ -n "$AI_WORK_TYPE" ]; then
+              WORK_TYPE="$AI_WORK_TYPE"
+              echo "Using AI work type: $WORK_TYPE"
+            fi
+            if [ -n "$AI_SCOPE" ]; then
+              SCOPE="$AI_SCOPE"
+              echo "Using AI scope: $SCOPE"
+            fi
+            if [ -n "$AI_RISK" ]; then
+              RISK="$AI_RISK"
+              echo "Using AI risk: $RISK"
+            fi
+            if [ -n "$AI_SUMMARY" ]; then
+              DESCRIPTION="$AI_SUMMARY"
+              echo "Using AI summary: $DESCRIPTION"
+            fi
+          fi
+
+          # Use AI-generated release notes if available
+          if [ -n "$AI_NOTES" ] && [ "$AI_NOTES" != "No release notes available." ]; then
+            CUSTOMER_NOTES="$AI_NOTES"
+            echo "Using AI-generated release notes"
+          fi
+
+          echo "work_type=$WORK_TYPE" >> "$GITHUB_OUTPUT"
+          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
+          echo "risk=$RISK" >> "$GITHUB_OUTPUT"
+          echo "flags=$AI_FLAGS" >> "$GITHUB_OUTPUT"
+
+          echo "customer_notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CUSTOMER_NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Extract version
         id: version
         run: |
           VERSION=$(jq -r '.["."]' .release-please-manifest.json 2>/dev/null || echo "")
           echo "version=${VERSION:-N/A}" >> "$GITHUB_OUTPUT"
-          echo "Current version: ${VERSION:-N/A}"
-
-      - name: Rewrite release notes with AI
-        id: rewrite
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
-          RELEASE_NOTES: ${{ steps.metadata.outputs.release_notes }}
-        run: |
-          echo "$RELEASE_NOTES" | node scripts/rewrite-release-notes.js
-
-          if [ -f customer-release-notes.md ]; then
-            echo "customer_notes<<EOF" >> "$GITHUB_OUTPUT"
-            cat customer-release-notes.md >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
-          else
-            echo "customer_notes<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Post to Slack
         continue-on-error: true
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          WORK_TYPE: ${{ steps.metadata.outputs.work_type }}
-          SCOPE: ${{ steps.metadata.outputs.scope }}
-          DESCRIPTION: ${{ steps.metadata.outputs.description }}
+          WORK_TYPE: ${{ steps.final.outputs.work_type }}
+          SCOPE: ${{ steps.final.outputs.scope }}
+          DESCRIPTION: ${{ steps.final.outputs.description }}
           JIRA_ID: ${{ steps.metadata.outputs.jira_id }}
           PR_URL: ${{ steps.metadata.outputs.pr_url }}
           PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
-          CUSTOMER_NOTES: ${{ steps.rewrite.outputs.customer_notes }}
+          CUSTOMER_NOTES: ${{ steps.final.outputs.customer_notes }}
+          RISK: ${{ steps.final.outputs.risk }}
         run: |
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "Warning: SLACK_WEBHOOK_URL not configured, skipping Slack notification"
             exit 0
           fi
 
-          # Truncate notes for Slack
           TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 2500)
+
+          # Add risk emoji
+          RISK_EMOJI="🟢"
+          case "$RISK" in
+            "Medium") RISK_EMOJI="🟡" ;;
+            "High") RISK_EMOJI="🟠" ;;
+            "Critical") RISK_EMOJI="🔴" ;;
+          esac
 
           PAYLOAD=$(cat <<EOFPAYLOAD
           {
@@ -181,6 +288,7 @@ jobs:
                   { "type": "mrkdwn", "text": "*Type:* ${WORK_TYPE}" },
                   { "type": "mrkdwn", "text": "*Scope:* ${SCOPE}" },
                   { "type": "mrkdwn", "text": "*Jira:* ${JIRA_ID}" },
+                  { "type": "mrkdwn", "text": "*Risk:* ${RISK_EMOJI} ${RISK}" },
                   { "type": "mrkdwn", "text": "*PR:* <${PR_URL}|#${PR_NUMBER}>" }
                 ]
               },
@@ -211,30 +319,29 @@ jobs:
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-          WORK_TYPE: ${{ steps.metadata.outputs.work_type }}
+          WORK_TYPE: ${{ steps.final.outputs.work_type }}
           JIRA_ID: ${{ steps.metadata.outputs.jira_id }}
-          DESCRIPTION: ${{ steps.metadata.outputs.description }}
+          DESCRIPTION: ${{ steps.final.outputs.description }}
           PR_URL: ${{ steps.metadata.outputs.pr_url }}
           MERGED_AT: ${{ github.event.pull_request.merged_at }}
-          CUSTOMER_NOTES: ${{ steps.rewrite.outputs.customer_notes }}
+          CUSTOMER_NOTES: ${{ steps.final.outputs.customer_notes }}
           VERSION: ${{ steps.version.outputs.version }}
           BREAKING: ${{ steps.metadata.outputs.breaking }}
+          RISK: ${{ steps.final.outputs.risk }}
+          IS_RELEASE: ${{ steps.metadata.outputs.is_release }}
         run: |
           if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
             echo "Warning: Notion secrets not configured, skipping Notion update"
             exit 0
           fi
 
-          # Truncate notes to 1900 chars (Notion block limit is 2000)
           TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
 
           # Build Features multi-select and Bug Fixes text based on work type
           FEATURES_JSON="[]"
           BUGFIXES_TEXT=""
-          IS_RELEASE="${{ steps.metadata.outputs.is_release }}"
 
           if [ "$IS_RELEASE" = "true" ]; then
-            # For release PRs: extract features and bug fixes from changelog
             FEATURES_TEXT=$(echo "$CUSTOMER_NOTES" | grep -i 'feature\|new\|add\|enhancement' | head -3 | tr '\n' '; ' || true)
             BUGFIXES_TEXT=$(echo "$CUSTOMER_NOTES" | grep -i 'fix\|bug\|patch\|resolve' | head -3 | tr '\n' '; ' || true)
             if [ -n "$FEATURES_TEXT" ]; then
@@ -325,7 +432,6 @@ jobs:
           EOFPAYLOAD
           )
 
-          # Retry logic for Notion API rate limits
           MAX_RETRIES=3
           RETRY_COUNT=0
 

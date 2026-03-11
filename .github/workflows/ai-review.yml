@@ -1,0 +1,79 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ai-review:
+    name: AI Code Review
+    if: "!startsWith(github.event.pull_request.title, 'chore(main): release')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Get PR diff and run AI review
+        id: review
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$NVIDIA_API_KEY" ]; then
+            echo "Warning: NVIDIA_API_KEY not configured, skipping AI review"
+            exit 0
+          fi
+
+          # Get the PR diff
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }})
+
+          if [ -z "$DIFF" ]; then
+            echo "No diff found, skipping review"
+            exit 0
+          fi
+
+          # Run AI review
+          REVIEW=$(echo "$DIFF" | node scripts/ai-review-pr.js)
+
+          # Save review to file for the comment step
+          echo "$REVIEW" > ai-review-output.md
+
+      - name: Post review comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f ai-review-output.md ]; then
+            echo "No review output found, skipping comment"
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+
+          # Check if an AI review comment already exists, update instead of creating duplicates
+          EXISTING_COMMENT_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.body | contains("🤖 AI Code Review")) | .id' | head -1)
+
+          if [ -n "$EXISTING_COMMENT_ID" ]; then
+            gh api \
+              --method PATCH \
+              "repos/${{ github.repository }}/issues/comments/${EXISTING_COMMENT_ID}" \
+              -f body="$(cat ai-review-output.md)"
+            echo "Updated existing AI review comment"
+          else
+            gh pr comment "$PR_NUMBER" \
+              --repo "${{ github.repository }}" \
+              --body-file ai-review-output.md
+            echo "Posted new AI review comment"
+          fi

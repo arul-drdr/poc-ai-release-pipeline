@@ -1,0 +1,138 @@
+#!/usr/bin/env node
+
+/**
+ * AI Release Notes Generator from Code Diffs
+ *
+ * Reads a PR diff and generates customer-facing release notes
+ * based on the actual code changes, not just the PR description.
+ *
+ * Usage:
+ *   gh pr diff 123 | NVIDIA_API_KEY=xxx PR_TITLE="..." node scripts/ai-release-notes-from-diff.js
+ *
+ * Environment:
+ *   NVIDIA_API_KEY - API key from build.nvidia.com
+ *   PR_TITLE       - PR title for context
+ *   PR_BODY        - PR body/description for context
+ *
+ * Output:
+ *   Writes customer-facing release notes to stdout
+ */
+
+const NVIDIA_API_URL =
+  "https://integrate.api.nvidia.com/v1/chat/completions";
+const MODEL = "meta/llama-3.3-70b-instruct";
+const MAX_TOKENS = 2000;
+const MAX_DIFF_CHARS = 25000;
+
+const SYSTEM_PROMPT = `You are a technical writer for a healthcare software product.
+Your job is to read a code diff and write customer-facing release notes.
+
+Rules:
+- Write from the customer's perspective — what changed FOR THEM
+- Focus on user impact, not technical implementation details
+- Remove all Jira IDs, PR numbers, commit hashes
+- Use professional, clear language for healthcare stakeholders
+- Categorize into: New Features, Improvements, or Bug Fixes (only include relevant categories)
+- Keep it concise: 2-5 bullet points maximum
+- If the change is purely internal (CI/CD, refactoring, tests), write: "Internal improvements to system reliability and performance."
+- Output clean markdown without code blocks
+
+Example output:
+### New Features
+- Added address validation for patient records, reducing data entry errors
+
+### Bug Fixes
+- Fixed an issue where session tokens were not refreshing correctly, preventing intermittent login failures`;
+
+async function readStdin() {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", reject);
+    setTimeout(() => {
+      if (!data) reject(new Error("No input received (timeout)"));
+    }, 15000);
+  });
+}
+
+async function generateNotesFromDiff(diff, title, body) {
+  const token = process.env.NVIDIA_API_KEY;
+  if (!token) {
+    throw new Error("NVIDIA_API_KEY environment variable is not set.");
+  }
+
+  const truncatedDiff =
+    diff.length > MAX_DIFF_CHARS
+      ? diff.substring(0, MAX_DIFF_CHARS) + "\n\n... [diff truncated] ..."
+      : diff;
+
+  const userMessage = `PR Title: ${title || "Untitled"}
+
+Developer Description:
+${body || "No description provided."}
+
+Code Diff:
+${truncatedDiff}
+
+Write customer-facing release notes based on the actual code changes above.`;
+
+  const response = await fetch(NVIDIA_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`NVIDIA API returned HTTP ${response.status}: ${errorBody}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+async function main() {
+  const title = process.env.PR_TITLE || "";
+  const body = process.env.PR_BODY || "";
+
+  try {
+    console.error("Reading PR diff from stdin...");
+    const diff = await readStdin();
+
+    if (!diff || diff.trim().length === 0) {
+      console.error("No diff provided");
+      console.log("No release notes available.");
+      return;
+    }
+
+    console.error(`Sending to NVIDIA API (${MODEL}) for release notes generation...`);
+    const notes = await generateNotesFromDiff(diff, title, body);
+    console.log(notes);
+  } catch (error) {
+    console.error(`AI Release Notes Error: ${error.message}`);
+    // Fallback: use the PR body's Release Notes section if available
+    const releaseNotesMatch = (body || "").match(
+      /## Release Notes\s*\n([\s\S]*?)(?=\n## |$)/
+    );
+    if (releaseNotesMatch && !releaseNotesMatch[1].includes("Write a customer-readable")) {
+      console.log(releaseNotesMatch[1].trim());
+    } else {
+      console.log("No release notes available.");
+    }
+  }
+}
+
+main();
