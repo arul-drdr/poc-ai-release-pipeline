@@ -369,19 +369,29 @@ jobs:
           CONTRIBUTORS: ${{ steps.metadata.outputs.contributors }}
           PR_CREATED_BY: ${{ steps.metadata.outputs.pr_created_by }}
           SUMMARY_TEXT: ${{ steps.metadata.outputs.summary_text }}
+          RELEASE_NOTES: ${{ steps.metadata.outputs.release_notes }}
         run: |
           if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
             echo "Warning: Notion secrets not configured, skipping Notion update"
             exit 0
           fi
 
-          # Build Notion Summary: prefer AI notes > PR Summary of Changes > Description
-          if [ -n "$CUSTOMER_NOTES" ] && [ "$CUSTOMER_NOTES" != "No release notes provided." ]; then
-            TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
-          elif [ -n "$SUMMARY_TEXT" ]; then
+          # Build Notion Summary: prefer PR Summary of Changes > AI notes > Description
+          if [ -n "$SUMMARY_TEXT" ]; then
             TRUNCATED_NOTES=$(echo "$SUMMARY_TEXT" | head -c 1900)
+          elif [ -n "$CUSTOMER_NOTES" ] && [ "$CUSTOMER_NOTES" != "No release notes provided." ]; then
+            TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
           else
             TRUNCATED_NOTES="$DESCRIPTION"
+          fi
+
+          # Build Release Notes: prefer AI notes > PR Release Notes section > fallback
+          if [ -n "$CUSTOMER_NOTES" ] && [ "$CUSTOMER_NOTES" != "No release notes provided." ]; then
+            NOTION_RELEASE_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
+          elif [ -n "$RELEASE_NOTES" ] && [ "$RELEASE_NOTES" != "No release notes provided." ]; then
+            NOTION_RELEASE_NOTES=$(echo "$RELEASE_NOTES" | head -c 1900)
+          else
+            NOTION_RELEASE_NOTES=""
           fi
 
           # Build Features multi-select and Bug Fixes text based on work type
@@ -443,6 +453,7 @@ jobs:
             --arg pr_created_by "${PR_CREATED_BY:-N/A}" \
             --argjson task_ids "$TASK_ID_JSON" \
             --arg pr_url "$PR_URL" \
+            --arg release_notes "$NOTION_RELEASE_NOTES" \
             '{
               parent: { database_id: $db_id },
               properties: {
@@ -456,7 +467,8 @@ jobs:
                 "Bug Fixes": { rich_text: [{ type: "text", text: { content: $bugfixes } }] },
                 "Contributors": { multi_select: $contributors },
                 "PR Created By": { rich_text: [{ type: "text", text: { content: $pr_created_by } }] },
-                "Task Id": { multi_select: $task_ids }
+                "Task Id": { multi_select: $task_ids },
+                "Release Notes": { rich_text: [{ type: "text", text: { content: $release_notes } }] }
               },
               children: [
                 {
