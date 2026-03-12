@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.0...poc-ai-release-pipeline-v1.10.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1369 Fix Notion Contributors and Summary fields ([#42](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/42)) ([2ffef67](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/2ffef676beb21fbe200fe9c1fff15c739b4fb7ab))
+
 ## [1.10.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.9.0...poc-ai-release-pipeline-v1.10.0) (2026-03-11)
 
 
