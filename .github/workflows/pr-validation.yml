@@ -324,6 +324,70 @@ jobs:
 
             console.log(`Auto-filled PR #${prNumber} body from Jira ${jiraId}`);
 
+      - name: Auto-fill Contributors and PR Author
+        if: github.event.action == 'opened' || github.event.action == 'reopened'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            // Fetch latest PR body (may have been updated by Jira auto-fill above)
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            let body = pr.body || '';
+
+            // Skip if placeholders are already replaced
+            if (!body.includes('Auto-detected from commits') && !body.includes('Auto-detected from PR')) {
+              console.log('Contributors and PR Author already filled, skipping');
+              return;
+            }
+
+            // Build contributors list from commit authors
+            const contributors = new Set();
+            try {
+              const commits = await github.rest.pulls.listCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                per_page: 100
+              });
+              for (const commit of commits.data) {
+                const name = commit.commit.author?.name;
+                if (name && !name.includes('[bot]')) {
+                  contributors.add(name);
+                }
+              }
+            } catch (e) {
+              console.log(`Could not fetch commits: ${e.message}`);
+            }
+
+            if (contributors.size > 0) {
+              body = body.replace(
+                'Auto-detected from commits',
+                [...contributors].join(', ')
+              );
+            }
+
+            // Replace PR Created By with GitHub PR author
+            const prAuthor = context.payload.pull_request.user.login;
+            body = body.replace(
+              'Auto-detected from PR',
+              `@${prAuthor}`
+            );
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              body: body
+            });
+
+            console.log(`Auto-filled Contributors and PR Author for PR #${prNumber}`);
+
       - name: Auto-Label PR
         uses: actions/github-script@v7
         env:
