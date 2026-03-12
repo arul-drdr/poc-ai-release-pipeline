@@ -68,6 +68,9 @@ function renderTipsText(tips, visibleCount) {
 /**
  * Renders featured tips as interactive HTML with Show More / Show Less toggle.
  *
+ * Uses a container ID to prevent duplicate rendering on re-calls, and
+ * data attributes to scope toggle logic to a single section.
+ *
  * @param {Array} tips - Array of tip objects with title and description
  * @param {number} [initialVisible=2] - Number of tips visible before expanding
  * @returns {string} HTML markup with inline JS for toggle behaviour
@@ -82,9 +85,8 @@ function renderTipsHTML(tips, initialVisible) {
 
   const items = tips
     .map((tip, i) => {
-      const hiddenAttr = i >= limit ? ' style="display:none"' : "";
       const hiddenClass = i >= limit ? " tip-hidden" : "";
-      return `    <div class="tip-card${hiddenClass}"${hiddenAttr}>
+      return `    <div class="tip-card${hiddenClass}" data-tip-index="${i}">
       <h3>${tip.title}</h3>
       <p>${tip.description}</p>
     </div>`;
@@ -92,31 +94,52 @@ function renderTipsHTML(tips, initialVisible) {
     .join("\n");
 
   const toggleBtn = hasHidden
-    ? `\n    <button class="tips-toggle" onclick="toggleTips()">Show More</button>`
+    ? `\n    <button class="tips-toggle" data-expanded="false" data-visible-count="${limit}">Show More</button>`
     : "";
 
   const toggleScript = hasHidden
     ? `
   <script>
-    function toggleTips() {
-      var hiddenCards = document.querySelectorAll('.tip-card.tip-hidden');
-      var btn = document.querySelector('.tips-toggle');
-      var isExpanded = btn.getAttribute('data-expanded') === 'true';
+    (function() {
+      // Guard against duplicate script execution
+      if (window._tipsToggleBound) return;
+      window._tipsToggleBound = true;
 
-      for (var i = 0; i < hiddenCards.length; i++) {
-        hiddenCards[i].style.display = isExpanded ? 'none' : '';
-      }
+      document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.tips-toggle');
+        if (!btn) return;
 
-      btn.textContent = isExpanded ? 'Show More' : 'Show Less';
-      btn.setAttribute('data-expanded', isExpanded ? 'false' : 'true');
-    }
+        var section = btn.closest('.featured-tips');
+        if (!section) return;
+
+        var isExpanded = btn.getAttribute('data-expanded') === 'true';
+        var visibleCount = parseInt(btn.getAttribute('data-visible-count'), 10);
+        var cards = section.querySelectorAll('.tip-card');
+
+        for (var i = 0; i < cards.length; i++) {
+          if (i >= visibleCount) {
+            if (isExpanded) {
+              cards[i].classList.add('tip-hidden');
+            } else {
+              cards[i].classList.remove('tip-hidden');
+            }
+          }
+        }
+
+        btn.textContent = isExpanded ? 'Show More' : 'Show Less';
+        btn.setAttribute('data-expanded', isExpanded ? 'false' : 'true');
+      });
+    })();
   </script>`
     : "";
 
-  return `<section class="featured-tips">
+  return `<section class="featured-tips" id="featured-tips-section">
   <h2>Featured Tips</h2>
 ${items}${toggleBtn}
-</section>${toggleScript}`;
+</section>
+  <style>
+    .tip-card.tip-hidden { display: none; }
+  </style>${toggleScript}`;
 }
 
 module.exports = { featuredTips, renderTipsText, renderTipsHTML, INITIAL_VISIBLE };
@@ -139,34 +162,48 @@ if (require.main === module) {
 
   const checks = [
     {
-      name: "Initially only limited tips are visible (hidden tips have display:none)",
+      name: "Initially only limited tips visible (tip-hidden class on extras)",
       pass:
-        (html.match(/style="display:none"/g) || []).length ===
+        (html.match(/class="tip-card tip-hidden"/g) || []).length ===
         featuredTips.length - INITIAL_VISIBLE,
     },
     {
-      name: 'Clicking "Show More" expands the list (toggle function exists)',
-      pass: html.includes("function toggleTips()"),
+      name: "CSS rule hides tip-hidden cards (no inline style duplication)",
+      pass:
+        html.includes(".tip-card.tip-hidden { display: none; }") &&
+        !html.includes('style="display:none"'),
     },
     {
-      name: 'Clicking "Show Less" collapses the list (button text changes)',
+      name: "Toggle uses classList add/remove (no duplicate rendering)",
+      pass:
+        html.includes("classList.add('tip-hidden')") &&
+        html.includes("classList.remove('tip-hidden')"),
+    },
+    {
+      name: "Duplicate script guard prevents multiple bindings",
+      pass: html.includes("window._tipsToggleBound"),
+    },
+    {
+      name: "Scoped to section via closest() (no cross-section interference)",
+      pass: html.includes("btn.closest('.featured-tips')"),
+    },
+    {
+      name: "Event delegation (single listener, not per-button onclick)",
+      pass:
+        html.includes("document.addEventListener('click'") &&
+        !html.includes("onclick="),
+    },
+    {
+      name: "Button label toggles between Show More / Show Less",
       pass: html.includes("'Show Less'") && html.includes("'Show More'"),
     },
     {
-      name: "Button label changes correctly based on state (data-expanded attr)",
-      pass: html.includes("data-expanded"),
-    },
-    {
-      name: "No UI breaking — all tips present in DOM",
+      name: "All tips present in DOM (no missing cards)",
       pass: featuredTips.every((t) => html.includes(t.title)),
     },
     {
-      name: "Show More button rendered",
-      pass: html.includes('class="tips-toggle"'),
-    },
-    {
-      name: "Hidden tips have tip-hidden class for targeting",
-      pass: html.includes("tip-hidden"),
+      name: "Each card has unique data-tip-index",
+      pass: featuredTips.every((_, i) => html.includes(`data-tip-index="${i}"`)),
     },
     {
       name: "Empty array handled gracefully",
