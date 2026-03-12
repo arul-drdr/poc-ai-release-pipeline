@@ -12,7 +12,7 @@ function capitalizeWords(str) {
 
   return str
     .split(" ")
-    .map((word) => (word.length > 0 ? word[0].toLowerCase() + word.slice(1) : word))
+    .map((word) => (word.length > 0 ? word[0].toUpperCase() + word.slice(1) : word))
     .join(" ");
 }
 
@@ -21,7 +21,7 @@ module.exports = { capitalizeWords };
 // Run if executed directly
 if (require.main === module) {
   const testCases = [
-    { input: "hello worlds", expected: "Hello World" },
+    { input: "hello world", expected: "Hello World" },
     { input: "the quick brown fox", expected: "The Quick Brown Fox" },
     { input: "already Capitalized Words", expected: "Already Capitalized Words" },
     { input: "ALL UPPERCASE", expected: "ALL UPPERCASE" },
