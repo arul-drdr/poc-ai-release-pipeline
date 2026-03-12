@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.11.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.3...poc-ai-release-pipeline-v1.11.0) (2026-03-12)
+
+
+### New Features
+
+* **scripts:** TRAIN-1368 Add capitalize words function ([#48](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/48)) ([2328284](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/2328284d6bf8c180be61b527bd4c584e43d1aaab))
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1368 Auto-fill Contributors and PR Author independently of Jira ([#49](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/49)) ([df9a88c](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/df9a88cc83ebcf9d1afce81656dc4c0f6b4099b4))
+
 ## [1.10.3](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.2...poc-ai-release-pipeline-v1.10.3) (2026-03-12)
 
 
