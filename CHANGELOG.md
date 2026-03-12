@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.4](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.3...poc-ai-release-pipeline-v1.10.4) (2026-03-12)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1368 Auto-fill Contributors and PR Author independently of Jira ([#49](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/49)) ([df9a88c](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/df9a88cc83ebcf9d1afce81656dc4c0f6b4099b4))
+
 ## [1.10.3](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.2...poc-ai-release-pipeline-v1.10.3) (2026-03-12)
 
 
