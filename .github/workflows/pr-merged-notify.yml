@@ -27,11 +27,14 @@ jobs:
         id: metadata
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Fetch the latest PR body via API (event payload may be stale —
+          # ai-review.yml updates release notes after PR is opened)
+          PR_BODY=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json body --jq '.body' 2>/dev/null || echo "${{ github.event.pull_request.body }}")
+
           IS_RELEASE="false"
 
           # Detect release-please PRs
