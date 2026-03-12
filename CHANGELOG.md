@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.4...poc-ai-release-pipeline-v1.11.0) (2026-03-12)
+
+
+### New Features
+
+* **scripts:** TRAIN-1368 Add capitalize words function ([#48](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/48)) ([2328284](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/2328284d6bf8c180be61b527bd4c584e43d1aaab))
+
 ## [1.10.4](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.3...poc-ai-release-pipeline-v1.10.4) (2026-03-12)
 
 
