@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.2](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.1...poc-ai-release-pipeline-v1.10.2) (2026-03-12)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1369 Add Release Notes property to Notion page ([#45](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/45)) ([13ad2fb](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/13ad2fb267f1076ac8ab8db6750a90b70f245b5d))
+
 ## [1.10.1](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.0...poc-ai-release-pipeline-v1.10.1) (2026-03-12)
 
 
