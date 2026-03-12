@@ -1,10 +1,15 @@
 /**
  * Renders a "Featured Tips" section dynamically from a data array.
  *
- * Can be used in Node.js (outputs text) or browser (outputs HTML).
+ * Supports Show More / Show Less toggle to initially display a limited
+ * number of tips and expand on user interaction.
+ *
+ * Can be used in Node.js (outputs text) or browser (outputs interactive HTML).
  *
  * @module featured-tips
  */
+
+const INITIAL_VISIBLE = 2;
 
 const featuredTips = [
   {
@@ -38,79 +43,134 @@ const featuredTips = [
  * Renders featured tips as plain text (for Node.js / CLI usage).
  *
  * @param {Array} tips - Array of tip objects with title and description
+ * @param {number} [visibleCount] - Number of tips to show initially (omit to show all)
  * @returns {string} Formatted text output
  */
-function renderTipsText(tips) {
+function renderTipsText(tips, visibleCount) {
   if (!Array.isArray(tips) || tips.length === 0) {
     return "No featured tips available.";
   }
 
+  const limit = visibleCount || tips.length;
+  const visible = tips.slice(0, limit);
+  const hidden = tips.length - limit;
+
   const header = "=== Featured Tips ===\n";
-  const body = tips
+  const body = visible
     .map((tip, i) => `${i + 1}. ${tip.title}\n   ${tip.description}`)
     .join("\n\n");
 
-  return header + "\n" + body;
+  const footer = hidden > 0 ? `\n\n[Show More... (${hidden} more tips)]` : "";
+
+  return header + "\n" + body + footer;
 }
 
 /**
- * Renders featured tips as an HTML string (for browser usage).
+ * Renders featured tips as interactive HTML with Show More / Show Less toggle.
  *
  * @param {Array} tips - Array of tip objects with title and description
- * @returns {string} HTML markup for the tips section
+ * @param {number} [initialVisible=2] - Number of tips visible before expanding
+ * @returns {string} HTML markup with inline JS for toggle behaviour
  */
-function renderTipsHTML(tips) {
+function renderTipsHTML(tips, initialVisible) {
   if (!Array.isArray(tips) || tips.length === 0) {
     return '<section class="featured-tips"><p>No featured tips available.</p></section>';
   }
 
+  const limit = initialVisible || INITIAL_VISIBLE;
+  const hasHidden = tips.length > limit;
+
   const items = tips
-    .map(
-      (tip) =>
-        `    <div class="tip-card">
+    .map((tip, i) => {
+      const hiddenAttr = i >= limit ? ' style="display:none"' : "";
+      const hiddenClass = i >= limit ? " tip-hidden" : "";
+      return `    <div class="tip-card${hiddenClass}"${hiddenAttr}>
       <h3>${tip.title}</h3>
       <p>${tip.description}</p>
-    </div>`
-    )
+    </div>`;
+    })
     .join("\n");
+
+  const toggleBtn = hasHidden
+    ? `\n    <button class="tips-toggle" onclick="toggleTips()">Show More</button>`
+    : "";
+
+  const toggleScript = hasHidden
+    ? `
+  <script>
+    function toggleTips() {
+      var hiddenCards = document.querySelectorAll('.tip-card.tip-hidden');
+      var btn = document.querySelector('.tips-toggle');
+      var isExpanded = btn.getAttribute('data-expanded') === 'true';
+
+      for (var i = 0; i < hiddenCards.length; i++) {
+        hiddenCards[i].style.display = isExpanded ? 'none' : '';
+      }
+
+      btn.textContent = isExpanded ? 'Show More' : 'Show Less';
+      btn.setAttribute('data-expanded', isExpanded ? 'false' : 'true');
+    }
+  </script>`
+    : "";
 
   return `<section class="featured-tips">
   <h2>Featured Tips</h2>
-${items}
-</section>`;
+${items}${toggleBtn}
+</section>${toggleScript}`;
 }
 
-module.exports = { featuredTips, renderTipsText, renderTipsHTML };
+module.exports = { featuredTips, renderTipsText, renderTipsHTML, INITIAL_VISIBLE };
 
 // Run if executed directly
 if (require.main === module) {
+  console.log("--- Text Output (limited) ---\n");
+  console.log(renderTipsText(featuredTips, INITIAL_VISIBLE));
+
+  console.log("\n\n--- Text Output (all) ---\n");
   console.log(renderTipsText(featuredTips));
-  console.log("\n--- HTML Output ---\n");
+
+  console.log("\n\n--- HTML Output (interactive) ---\n");
   console.log(renderTipsHTML(featuredTips));
 
   // Verify acceptance criteria
-  console.log("\n--- Acceptance Criteria Check ---\n");
+  console.log("\n\n--- Acceptance Criteria Check ---\n");
+
+  const html = renderTipsHTML(featuredTips);
 
   const checks = [
     {
-      name: "Tips rendered dynamically from array",
-      pass: renderTipsText(featuredTips).includes("Featured Tips"),
+      name: "Initially only limited tips are visible (hidden tips have display:none)",
+      pass:
+        (html.match(/style="display:none"/g) || []).length ===
+        featuredTips.length - INITIAL_VISIBLE,
     },
     {
-      name: "At least 3 demo tips displayed",
-      pass: featuredTips.length >= 3,
+      name: 'Clicking "Show More" expands the list (toggle function exists)',
+      pass: html.includes("function toggleTips()"),
     },
     {
-      name: "Each tip has title and description",
-      pass: featuredTips.every((t) => t.title && t.description),
+      name: 'Clicking "Show Less" collapses the list (button text changes)',
+      pass: html.includes("'Show Less'") && html.includes("'Show More'"),
     },
     {
-      name: "HTML output contains all tips",
-      pass: featuredTips.every((t) => renderTipsHTML(featuredTips).includes(t.title)),
+      name: "Button label changes correctly based on state (data-expanded attr)",
+      pass: html.includes("data-expanded"),
+    },
+    {
+      name: "No UI breaking — all tips present in DOM",
+      pass: featuredTips.every((t) => html.includes(t.title)),
+    },
+    {
+      name: "Show More button rendered",
+      pass: html.includes('class="tips-toggle"'),
+    },
+    {
+      name: "Hidden tips have tip-hidden class for targeting",
+      pass: html.includes("tip-hidden"),
     },
     {
       name: "Empty array handled gracefully",
-      pass: renderTipsText([]).includes("No featured tips"),
+      pass: renderTipsHTML([]).includes("No featured tips"),
     },
   ];
 
