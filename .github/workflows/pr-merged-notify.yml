@@ -97,15 +97,23 @@ jobs:
             fi
           fi
 
-          # Extract Contributors and PR Created By from PR body
+          # Extract Contributors: try PR body first, fallback to commit authors via API
           CONTRIBUTORS=$(echo "$PR_BODY" | sed -n '/## Contributors/,/## /{ /## Contributors/d; /## /d; /^<!--/d; /^$/d; p; }' | head -1)
           if [ -z "$CONTRIBUTORS" ] || echo "$CONTRIBUTORS" | grep -q 'Auto-detected from commits'; then
-            CONTRIBUTORS=""
+            # Fetch commit authors directly from the PR
+            CONTRIBUTORS=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --json commits --jq '[.commits[].authors[].name] | unique | map(select(. != "" and (test("\\[bot\\]") | not))) | join(", ")' 2>/dev/null || echo "")
           fi
 
           PR_CREATED_BY=$(echo "$PR_BODY" | sed -n '/## PR Created By/,/## /{ /## PR Created By/d; /## /d; /^<!--/d; /^$/d; p; }' | head -1)
           if [ -z "$PR_CREATED_BY" ] || echo "$PR_CREATED_BY" | grep -q 'Auto-detected from PR'; then
             PR_CREATED_BY=""
+          fi
+
+          # Extract Summary of Changes from PR body for Notion (more descriptive than release notes)
+          SUMMARY_TEXT=$(echo "$PR_BODY" | sed -n '/## Summary of Changes/,/## /{ /## Summary of Changes/d; /## /d; /^<!--/d; /^$/d; p; }' | head -10)
+          if [ -z "$SUMMARY_TEXT" ] || echo "$SUMMARY_TEXT" | grep -q 'Describe what was changed and why'; then
+            SUMMARY_TEXT=""
           fi
 
           echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
@@ -117,6 +125,11 @@ jobs:
           echo "breaking=$BREAKING" >> "$GITHUB_OUTPUT"
           echo "contributors=${CONTRIBUTORS}" >> "$GITHUB_OUTPUT"
           echo "pr_created_by=${PR_CREATED_BY:-${{ github.event.pull_request.user.login }}}" >> "$GITHUB_OUTPUT"
+
+          DELIM="META_SUMMARY_$(date +%s%N)"
+          echo "summary_text<<${DELIM}" >> "$GITHUB_OUTPUT"
+          echo "$SUMMARY_TEXT" >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
 
           DELIM="META_DESC_$(date +%s%N)"
           echo "description<<${DELIM}" >> "$GITHUB_OUTPUT"
@@ -355,13 +368,21 @@ jobs:
           IS_RELEASE: ${{ steps.metadata.outputs.is_release }}
           CONTRIBUTORS: ${{ steps.metadata.outputs.contributors }}
           PR_CREATED_BY: ${{ steps.metadata.outputs.pr_created_by }}
+          SUMMARY_TEXT: ${{ steps.metadata.outputs.summary_text }}
         run: |
           if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DATABASE_ID" ]; then
             echo "Warning: Notion secrets not configured, skipping Notion update"
             exit 0
           fi
 
-          TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
+          # Build Notion Summary: prefer AI notes > PR Summary of Changes > Description
+          if [ -n "$CUSTOMER_NOTES" ] && [ "$CUSTOMER_NOTES" != "No release notes provided." ]; then
+            TRUNCATED_NOTES=$(echo "$CUSTOMER_NOTES" | head -c 1900)
+          elif [ -n "$SUMMARY_TEXT" ]; then
+            TRUNCATED_NOTES=$(echo "$SUMMARY_TEXT" | head -c 1900)
+          else
+            TRUNCATED_NOTES="$DESCRIPTION"
+          fi
 
           # Build Features multi-select and Bug Fixes text based on work type
           FEATURES_JSON="[]"
