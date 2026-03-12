@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.3](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.2...poc-ai-release-pipeline-v1.10.3) (2026-03-12)
+
+
+### Bug Fixes
+
+* **ci:** TRAIN-1369 Fetch latest PR body for Notion release notes ([#44](https://github.com/arul-drdr/poc-ai-release-pipeline/issues/44)) ([87ea61e](https://github.com/arul-drdr/poc-ai-release-pipeline/commit/87ea61e0e54700f6c16552d8476365848d583561))
+
 ## [1.10.2](https://github.com/arul-drdr/poc-ai-release-pipeline/compare/poc-ai-release-pipeline-v1.10.1...poc-ai-release-pipeline-v1.10.2) (2026-03-12)
 
 
